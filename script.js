@@ -18,7 +18,7 @@ const db = firebase.firestore();
 // --- [GLOBAL STATE & CONSTANTS] ---
 let userState = {};
 let localUserId = null;
-const TELEGRAM_BOT_USERNAME = "YourActualBotUsername"; // e.g., "MyPepeCoinBot"
+const TELEGRAM_BOT_USERNAME = "TaskItUpBot"; // e.g., "MyPepeCoinBot"
 
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
@@ -131,3 +131,4 @@ window.onclick = function(event) { if (event.target == document.getElementById('
 
 // --- [APP ENTRY POINT] ---
 document.addEventListener('DOMContentLoaded', () => { initializeApp(); });
+
