@@ -34,7 +34,8 @@ function initializeApp() {
     localUserId = getLocalUserId();
     const userRef = db.collection('users').doc(localUserId);
 
-    // NEW: Use onSnapshot for REAL-TIME updates to the user's own data
+    // Use onSnapshot for REAL-TIME updates to the user's own data.
+    // This is CRITICAL for the referral count to update live.
     userRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
             console.log('New user detected. Creating default account...');
@@ -48,7 +49,7 @@ function initializeApp() {
                 username: "User", telegramUsername: `@user_${localUserId.substring(0,6)}`, profilePicUrl: generatePlaceholderAvatar(localUserId),
                 balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
                 referredBy: referrerId,
-                isReferralCredited: false,
+                isReferralCredited: false, // This is key for the new logic
                 referralEarnings: 0
             };
             await userRef.set(newUserState);
@@ -63,21 +64,18 @@ function initializeApp() {
                 const lastTaskDate = userState.lastTaskTimestamp.toDate();
                 if (now.getUTCDate() > lastTaskDate.getUTCDate() || now.getUTCMonth() > lastTaskDate.getUTCMonth()) {
                     if (userState.tasksCompletedToday > 0) {
-                        await userRef.update({ tasksCompletedToday: 0 });
-                        userState.tasksCompletedToday = 0; // Update local state too
+                        await userRef.update({ tasksCompletedToday: 0 }).catch(e => console.error(e));
                     }
                 }
             }
         }
         
-        // This ensures listeners are only set up once
         if (!isInitialized) {
             setupTaskButtonListeners();
             listenForWithdrawalHistory();
             isInitialized = true;
         }
 
-        // Always update the UI with the latest data from the snapshot
         updateUI();
 
     }, (error) => {
@@ -89,6 +87,7 @@ function getLocalUserId() { let storedId = localStorage.getItem('localAppUserId'
 function generatePlaceholderAvatar(userId) { return `https://i.pravatar.cc/150?u=${userId}`; }
 
 function updateUI() {
+    // Add default fallbacks to prevent errors if data is temporarily missing
     const balanceString = Math.floor(userState.balance || 0).toLocaleString();
     const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
     const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
@@ -101,9 +100,9 @@ function updateUI() {
     document.getElementById('home-username').textContent = userState.username;
     document.getElementById('profile-name').textContent = userState.username;
     document.getElementById('telegram-username').textContent = userState.telegramUsername;
-    document.getElementById('ads-watched-today').textContent = userState.tasksCompletedToday;
-    document.getElementById('ads-left-today').textContent = DAILY_TASK_LIMIT - userState.tasksCompletedToday;
-    const tasksCompleted = userState.tasksCompletedToday;
+    document.getElementById('ads-watched-today').textContent = userState.tasksCompletedToday || 0;
+    document.getElementById('ads-left-today').textContent = DAILY_TASK_LIMIT - (userState.tasksCompletedToday || 0);
+    const tasksCompleted = userState.tasksCompletedToday || 0;
     document.getElementById('tasks-completed').textContent = `${tasksCompleted} / ${DAILY_TASK_LIMIT}`;
     const progressPercentage = (tasksCompleted / DAILY_TASK_LIMIT) * 100;
     document.getElementById('task-progress-bar').style.width = `${progressPercentage}%`;
@@ -111,11 +110,14 @@ function updateUI() {
     taskButton.disabled = tasksCompleted >= DAILY_TASK_LIMIT;
     taskButton.innerHTML = tasksCompleted >= DAILY_TASK_LIMIT ? '<i class="fas fa-check-circle"></i> All tasks done' : '<i class="fas fa-play-circle"></i> Watch Ad';
     document.getElementById('earned-so-far').textContent = totalEarnedString;
-    document.getElementById('total-ads-viewed').textContent = userState.totalAdsViewed;
+    document.getElementById('total-ads-viewed').textContent = userState.totalAdsViewed || 0;
     document.getElementById('total-refers').textContent = totalRefersString;
     document.getElementById('refer-earnings').textContent = referralEarningsString;
     document.getElementById('refer-count').textContent = totalRefersString;
-    userState.joinedBonusTasks.forEach(taskId => {
+    
+    // Ensure joinedBonusTasks is an array before trying to iterate
+    const joinedTasks = userState.joinedBonusTasks || [];
+    joinedTasks.forEach(taskId => {
         const taskCard = document.getElementById(`task-${taskId}`);
         if (taskCard) taskCard.classList.add('completed');
     });
@@ -126,48 +128,49 @@ function listenForWithdrawalHistory() { const historyList = document.getElementB
 
 // --- FIXED: ROBUST REFERRAL COMMISSION LOGIC ---
 async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy || userState.isReferralCredited) {
-        // If there's no referrer OR if the credit has already been given, just pay commission.
-        if (!userState.referredBy) return;
-        const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
-        if (commissionAmount <= 0) return;
-        const referrerRef = db.collection('users').doc(userState.referredBy);
-        return referrerRef.update({
-            balance: firebase.firestore.FieldValue.increment(commissionAmount),
-            referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-        }).catch(error => console.error("Failed to pay subsequent commission:", error));
-    }
-    
+    if (!userState.referredBy) return;
+
     const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
     if (commissionAmount <= 0) return;
 
     const referrerRef = db.collection('users').doc(userState.referredBy);
     const currentUserRef = db.collection('users').doc(localUserId);
 
-    // This transaction is now ONLY for the first-time credit.
-    await db.runTransaction(async (transaction) => {
-        const referrerDoc = await transaction.get(referrerRef);
-        if (!referrerDoc.exists) throw "Referrer not found!";
-        
-        console.log("First earning: Crediting referrer count and commission.");
-        transaction.update(referrerRef, {
-            totalRefers: firebase.firestore.FieldValue.increment(1),
+    // Use a transaction for the first-time credit to ensure it's atomic
+    if (!userState.isReferralCredited) {
+        console.log("First earning: Attempting to credit referrer count and commission.");
+        return db.runTransaction(async (transaction) => {
+            const referrerDoc = await transaction.get(referrerRef);
+            if (!referrerDoc.exists) throw "Referrer not found!";
+            
+            // This transaction updates both documents at once
+            transaction.update(referrerRef, {
+                totalRefers: firebase.firestore.FieldValue.increment(1),
+                balance: firebase.firestore.FieldValue.increment(commissionAmount),
+                referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+            });
+            transaction.update(currentUserRef, { isReferralCredited: true });
+        }).then(() => {
+            console.log("Referral credited and commission paid successfully.");
+            userState.isReferralCredited = true; // Update local state
+        }).catch(error => {
+            console.error("Referral commission transaction failed: ", error);
+        });
+    } else {
+        // For all subsequent earnings, a simple update is fine.
+        console.log("Subsequent earning: Paying commission only.");
+        return referrerRef.update({
             balance: firebase.firestore.FieldValue.increment(commissionAmount),
             referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-        });
-        transaction.update(currentUserRef, { isReferralCredited: true });
-    }).then(() => {
-        userState.isReferralCredited = true; // Update local state on success
-    }).catch(error => {
-        console.error("Referral commission transaction failed: ", error);
-    });
+        }).catch(error => console.error("Failed to pay subsequent commission:", error));
+    }
 }
 
 function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => { handleJoinClick(taskId, url); }); } if (verifyBtn) { verifyBtn.addEventListener('click', () => { handleVerifyClick(taskId, reward); }); } }); }
 function handleJoinClick(taskId, url) { const taskCard = document.getElementById(`task-${taskId}`); if (!taskCard) return; const joinButton = taskCard.querySelector('.join-btn'); const verifyButton = taskCard.querySelector('.verify-btn'); window.open(url, '_blank'); alert("After joining, return to the app and press 'Verify' to claim your reward."); if (verifyButton) verifyButton.disabled = false; if (joinButton) joinButton.disabled = true; }
-async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks.includes(taskId)) { alert("You have already completed this task."); return; } const taskCard = document.getElementById(`task-${taskId}`); const verifyButton = taskCard.querySelector('.verify-btn'); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); userState.balance += reward; userState.totalEarned += reward; userState.joinedBonusTasks.push(taskId); await payReferralCommission(reward); alert(`Verification successful! You've earned ${reward} PEPE.`); updateUI(); } catch (error) { console.error("Error rewarding user for channel join:", error); alert("An error occurred. Please try again."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
+async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks.includes(taskId)) { alert("You have already completed this task."); return; } const taskCard = document.getElementById(`task-${taskId}`); const verifyButton = taskCard.querySelector('.verify-btn'); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); await payReferralCommission(reward); alert(`Verification successful! You've earned ${reward} PEPE.`); } catch (error) { console.error("Error rewarding user for channel join:", error); alert("An error occurred. Please try again."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
 
-window.completeAdTask = async function() { if (userState.tasksCompletedToday >= DAILY_TASK_LIMIT) { alert("You have completed all ad tasks for today!"); return; } const taskButton = document.getElementById('start-task-button'); try { taskButton.disabled = true; taskButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Ad...'; await window.show_9685198(); const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(AD_REWARD), totalEarned: firebase.firestore.FieldValue.increment(AD_REWARD), tasksCompletedToday: firebase.firestore.FieldValue.increment(1), totalAdsViewed: firebase.firestore.FieldValue.increment(1), lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp() }); userState.balance += AD_REWARD; userState.totalEarned += AD_REWARD; userState.tasksCompletedToday++; userState.totalAdsViewed++; await payReferralCommission(AD_REWARD); alert(`Success! ${AD_REWARD} PEPE has been added to your balance.`); } catch (error) { console.error("An error occurred during the ad task:", error); alert("Ad could not be shown or was closed early. Please try again."); } finally { updateUI(); } }
+window.completeAdTask = async function() { if (userState.tasksCompletedToday >= DAILY_TASK_LIMIT) { alert("You have completed all ad tasks for today!"); return; } const taskButton = document.getElementById('start-task-button'); try { taskButton.disabled = true; taskButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Ad...'; await window.show_9685198(); const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(AD_REWARD), totalEarned: firebase.firestore.FieldValue.increment(AD_REWARD), tasksCompletedToday: firebase.firestore.FieldValue.increment(1), totalAdsViewed: firebase.firestore.FieldValue.increment(1), lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp() }); await payReferralCommission(AD_REWARD); alert(`Success! ${AD_REWARD} PEPE has been added to your balance.`); } catch (error) { console.error("An error occurred during the ad task:", error); alert("Ad could not be shown or was closed early. Please try again."); } finally { updateUI(); } }
 window.submitWithdrawal = async function() { const amount = parseInt(document.getElementById('withdraw-amount').value); const method = document.getElementById('withdraw-method').value; const walletId = document.getElementById('wallet-id').value.trim(); const minAmount = WITHDRAWAL_MINIMUMS[method]; if (isNaN(amount) || amount <= 0 || !walletId) { alert('Please enter a valid amount and your Binance ID or Email.'); return; } if (amount < minAmount) { alert(`Withdrawal failed. The minimum is ${minAmount.toLocaleString()} PEPE.`); return; } if (amount > userState.balance) { alert('Withdrawal failed. You do not have enough balance.'); return; } try { const historyList = document.getElementById('history-list'); const noHistoryMsg = historyList.querySelector('.no-history'); if (noHistoryMsg) { noHistoryMsg.remove(); } const optimisticData = { amount: amount, status: 'pending', requestedAt: new Date() }; const optimisticItem = renderHistoryItem(optimisticData); historyList.prepend(optimisticItem); await db.collection('withdrawals').add({ userId: localUserId, username: userState.telegramUsername, amount: amount, method: "Binance Pay", walletId: walletId, currency: "PEPE", status: "pending", requestedAt: firebase.firestore.FieldValue.serverTimestamp() }); const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(-amount) }); alert(`Success! Your withdrawal request for ${amount.toLocaleString()} PEPE has been submitted.`); userState.balance -= amount; document.getElementById('withdraw-amount').value = ''; document.getElementById('wallet-id').value = ''; updateUI(); } catch (error) { console.error("Withdrawal failed:", error); alert("There was an error submitting your request. Please try again."); } }
 
 // --- [UTILITY FUNCTIONS] ---
