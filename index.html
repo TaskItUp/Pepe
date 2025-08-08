@@ -26,7 +26,6 @@
             </div>
             <div class="main-balance-card">
                 <p>Total Balance</p>
-                <!-- MODIFIED: Changed currency display -->
                 <h1 class="balance-amount"><span id="balance-home">0</span> <span class="currency">PEPE</span></h1>
             </div>
             <div class="stats-grid">
@@ -44,8 +43,8 @@
 
             <div class="bonus-section">
                 <h3 class="section-title">Bonus Points</h3>
-                <!-- MODIFIED: Updated rewards and data attributes -->
-                <div class="task-card" id="task-channel_1" data-task-id="channel_1" data-url="https://t.me/durov" data-reward="300">
+                <!-- MODIFIED: Telegram URLs have been updated -->
+                <div class="task-card" id="task-channel_1" data-task-id="channel_1" data-url="https://t.me/ExpertEmon2" data-reward="300">
                     <div class="task-info">
                         <p class="task-title">Join Telegram Channel #1</p>
                         <p class="task-reward">+300 PEPE</p>
@@ -56,7 +55,7 @@
                     </div>
                     <div class="task-done"><i class="fas fa-check"></i> Done</div>
                 </div>
-                <div class="task-card" id="task-channel_2" data-task-id="channel_2" data-url="https://t.me/telegram" data-reward="300">
+                <div class="task-card" id="task-channel_2" data-task-id="channel_2" data-url="https://t.me/JunaidAttaExtra" data-reward="300">
                     <div class="task-info">
                         <p class="task-title">Join Telegram Channel #2</p>
                         <p class="task-reward">+300 PEPE</p>
@@ -81,22 +80,18 @@
                 <div class="progress-bar-container">
                     <div class="progress-bar" id="task-progress-bar" style="width: 0%;"></div>
                 </div>
-                <!-- MODIFIED: Updated ad reward text -->
                 <p class="reward-info">Get <span class="reward-amount">250 PEPE</span> for each ad view. Tasks reset every 24 hours.</p>
                 <button class="start-task-btn" id="start-task-button" onclick="completeAdTask()">
                     <i class="fas fa-play-circle"></i> Watch Ad
                 </button>
             </div>
         </div>
-
         <!-- Withdraw Tab -->
         <div id="withdraw" class="tab-content">
             <h2 class="page-title">Withdraw Funds</h2>
-            <!-- MODIFIED: Changed currency display -->
             <div class="available-balance-banner">
                 Available Balance: <span class="bold-text"><span id="withdraw-balance">0</span> PEPE</span>
             </div>
-            <!-- MODIFIED: Simplified withdrawal form -->
             <div class="withdraw-form-card">
                 <h3 class="card-title">Request Withdrawal</h3>
                 <div class="input-group">
@@ -118,14 +113,12 @@
                 </button>
             </div>
         </div>
-
         <!-- Profile Tab -->
         <div id="profile" class="tab-content">
             <div class="profile-header">
                 <img src="https://i.pravatar.cc/150" alt="User Profile" class="profile-pic-large">
                 <h3 id="profile-name">User</h3>
                 <p id="telegram-username" class="text-muted">@username</p>
-                <!-- MODIFIED: Changed currency display -->
                 <p class="profile-balance">Balance: <span id="profile-balance">0</span> PEPE</p>
             </div>
             <div class="profile-stats">
@@ -150,7 +143,7 @@
         <div id="refer-modal" class="modal-overlay">
             <div class="modal-content">
                 <button class="close-btn" onclick="closeReferModal()">&times;</button>
-                <h2 class="modal-title">Refer Friends, Earn More!</h2>
+                <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
                 <p class="modal-subtitle">Earn a <span class="highlight">10% commission</span> from your friends' earnings!</p>
                 <div class="referral-link-container">
                     <input type="text" id="referral-link" value="https://t.me/yourapp?start=a042581f4" readonly>
