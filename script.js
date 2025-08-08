@@ -39,48 +39,42 @@ function initializeApp(tgUser) {
     // Use onSnapshot for REAL-TIME updates to the user's own data.
     userRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
-            console.log('New user detected. Starting account creation process...');
+            console.log('New user detected. Creating account...');
             const referrerId = tgUser?.start_param || new URLSearchParams(window.location.search).get('ref');
-            console.log(`Referrer ID found: ${referrerId || 'None'}`);
-
+            
             const newUserState = {
                 username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "User",
                 telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : `@test_user`,
                 profilePicUrl: generatePlaceholderAvatar(telegramUserId),
-                balance: 0,
-                tasksCompletedToday: 0,
-                lastTaskTimestamp: null,
-                totalEarned: 0,
-                totalAdsViewed: 0,
-                totalRefers: 0,
-                joinedBonusTasks: [],
+                balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0,
+                totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
                 referredBy: referrerId || null,
                 referralEarnings: 0
             };
-
-            // --- FIXED: ROBUST REFERRAL LOGIC ---
-            try {
-                // Step 1: Always create the new user first. This is the most critical step.
-                await userRef.set(newUserState);
-                console.log(`New user account ${telegramUserId} created successfully. Referred by: ${referrerId}`);
-
-                // Step 2: If a referrer exists, try to update their referral count.
-                if (referrerId) {
-                    console.log(`Attempting to increment referral count for referrer: ${referrerId}`);
-                    const referrerRef = db.collection('users').doc(referrerId);
-                    
-                    // This update is separate, making the system more resilient.
-                    // If this fails, the new user still has the 'referredBy' field for future commissions.
-                    await referrerRef.update({
-                        totalRefers: firebase.firestore.FieldValue.increment(1)
-                    });
-                    console.log(`Successfully incremented referral count for ${referrerId}.`);
-                }
-            } catch (error) {
-                console.error("An error occurred during new user creation or referrer update:", error);
-            }
             
+            // --- FIXED: TRANSACTIONAL REFERRAL CREDIT AT SIGNUP ---
+            if (referrerId) {
+                const referrerRef = db.collection('users').doc(referrerId);
+                try {
+                    await db.runTransaction(async (transaction) => {
+                        const referrerDoc = await transaction.get(referrerRef);
+                        if (!referrerDoc.exists) throw "Referrer not found!";
+                        
+                        console.log("Crediting referrer instantly upon new user creation.");
+                        transaction.update(referrerRef, {
+                            totalRefers: firebase.firestore.FieldValue.increment(1)
+                        });
+                        transaction.set(userRef, newUserState); // Create the new user within the transaction
+                    });
+                } catch (error) {
+                    console.error("Referral transaction failed, creating user normally.", error);
+                    await userRef.set(newUserState); // Create user anyway if transaction fails
+                }
+            } else {
+                await userRef.set(newUserState); // Create user if there's no referrer
+            }
         } else {
+            console.log('User data updated in real-time.');
             userState = doc.data();
         }
         
@@ -94,12 +88,10 @@ function initializeApp(tgUser) {
     }, (error) => console.error("Error listening to user document:", error));
 }
 
-
 function getFakeUserIdForTesting() { let storedId = localStorage.getItem('localAppUserId'); if (storedId) return storedId; const newId = 'test_user_' + Date.now().toString(36); localStorage.setItem('localAppUserId', newId); return newId; }
 function generatePlaceholderAvatar(userId) { return `https://i.pravatar.cc/150?u=${userId}`; }
 
 function updateUI() {
-    if (!userState) return;
     const balanceString = Math.floor(userState.balance || 0).toLocaleString();
     const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
     const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
@@ -133,24 +125,23 @@ function updateUI() {
     });
 }
 
-function renderHistoryItem(withdrawalData) { const item = document.createElement('div'); item.className = `history-item ${withdrawalData.status}`; const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : new Date(withdrawalData.requestedAt.seconds * 1000); const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); item.innerHTML = ` <div class="history-details"> <div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div> <div class="history-date">${formattedDate}</div> </div> <div class="history-status ${withdrawalData.status}"> ${withdrawalData.status} </div> `; return item; }
+function renderHistoryItem(withdrawalData) { const item = document.createElement('div'); item.className = `history-item ${withdrawalData.status}`; const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : withdrawalData.requestedAt; const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); item.innerHTML = ` <div class="history-details"> <div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div> <div class="history-date">${formattedDate}</div> </div> <div class="history-status ${withdrawalData.status}"> ${withdrawalData.status} </div> `; return item; }
 function listenForWithdrawalHistory() { const historyList = document.getElementById('history-list'); db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(querySnapshot => { if (querySnapshot.empty) { historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>'; return; } historyList.innerHTML = ''; querySnapshot.forEach(doc => { const withdrawal = doc.data(); const itemElement = renderHistoryItem(withdrawal); historyList.appendChild(itemElement); }); }); }
 
+// --- FIXED: SIMPLIFIED COMMISSION PAYMENT LOGIC ---
 async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy) {
-        return; // Exit if user was not referred
-    }
+    if (!userState.referredBy) return; // Exit if user was not referred
 
     const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
     if (commissionAmount <= 0) return;
 
     const referrerRef = db.collection('users').doc(userState.referredBy);
-    console.log(`Paying ${commissionAmount} PEPE commission to referrer ${userState.referredBy}`);
 
+    // This simple update is now safe because the referral count is handled at signup.
     return referrerRef.update({
         balance: firebase.firestore.FieldValue.increment(commissionAmount),
         referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-    }).catch(error => console.error(`Failed to pay commission to ${userState.referredBy}:`, error));
+    }).catch(error => console.error("Failed to pay commission:", error));
 }
 
 
@@ -177,4 +168,4 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn("Telegram script not found. Running in browser test mode.");
         initializeApp(null);
     }
-});```
+});
