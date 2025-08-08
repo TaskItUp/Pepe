@@ -109,7 +109,6 @@ function listenForWithdrawalHistory() { const historyList = document.getElementB
 
 // --- FIXED: ROBUST REFERRAL COMMISSION LOGIC ---
 async function payReferralCommission(earnedAmount) {
-    // Exit if user was not referred or the commission has already been credited.
     if (!userState.referredBy) return;
 
     const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
@@ -118,32 +117,27 @@ async function payReferralCommission(earnedAmount) {
     const referrerRef = db.collection('users').doc(userState.referredBy);
     const currentUserRef = db.collection('users').doc(localUserId);
 
-    // Use a transaction to ensure all updates happen or none do.
     await db.runTransaction(async (transaction) => {
         const currentUserDoc = await transaction.get(currentUserRef);
         const referrerDoc = await transaction.get(referrerRef);
 
-        if (!referrerDoc.exists) {
-            console.error("Referrer does not exist. Cannot pay commission.");
-            return;
+        if (!referrerDoc.exists || !currentUserDoc.exists) {
+            throw "Referrer or current user not found!";
         }
 
-        const isReferralCredited = currentUserDoc.data().isReferralCredited || false;
+        const isCredited = currentUserDoc.data().isReferralCredited || false;
 
-        // If this is the first earning, credit the referral count AND pay commission.
-        if (!isReferralCredited) {
-            console.log(`First earning for referred user. Crediting referrer with +1 count and commission.`);
+        if (!isCredited) {
+            console.log("First earning: Crediting referrer count and commission.");
             transaction.update(referrerRef, {
                 totalRefers: firebase.firestore.FieldValue.increment(1),
                 balance: firebase.firestore.FieldValue.increment(commissionAmount),
                 referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
             });
-            // Mark this user's referral as credited so it only happens once.
             transaction.update(currentUserRef, { isReferralCredited: true });
             userState.isReferralCredited = true; // Update local state
         } else {
-            // If the referral has already been counted, just pay the commission.
-            console.log(`Subsequent earning. Paying commission of ${commissionAmount} PEPE.`);
+            console.log("Subsequent earning: Paying commission only.");
             transaction.update(referrerRef, {
                 balance: firebase.firestore.FieldValue.increment(commissionAmount),
                 referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
@@ -153,7 +147,6 @@ async function payReferralCommission(earnedAmount) {
         console.error("Referral commission transaction failed: ", error);
     });
 }
-
 
 function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => { handleJoinClick(taskId, url); }); } if (verifyBtn) { verifyBtn.addEventListener('click', () => { handleVerifyClick(taskId, reward); }); } }); }
 function handleJoinClick(taskId, url) { const taskCard = document.getElementById(`task-${taskId}`); if (!taskCard) return; const joinButton = taskCard.querySelector('.join-btn'); const verifyButton = taskCard.querySelector('.verify-btn'); window.open(url, '_blank'); alert("After joining, return to the app and press 'Verify' to claim your reward."); if (verifyButton) verifyButton.disabled = false; if (joinButton) joinButton.disabled = true; }
