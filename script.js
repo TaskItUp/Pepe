@@ -329,7 +329,7 @@ window.showTab = function (tab, el) {
 };
 
 window.openReferModal = function () {
-  const link = `${window.location.origin}${window.location.pathname}?ref=${telegramUserId}`;
+  const link = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${telegramUserId}`;
   document.getElementById('referral-link').value = link;
   document.getElementById('refer-modal').style.display = 'flex';
 };
