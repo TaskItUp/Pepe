@@ -20,7 +20,7 @@ let userState = {};
 let telegramUserId = null;
 let isInitialized = false;
 const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
-const GITHUB_PAGES_URL = "https://your-github-username.github.io/your-repo-name/"; // <-- IMPORTANT!
+const GITHUB_PAGES_URL = "https://taskitup.github.io/Pepe/"; // <-- IMPORTANT!
 
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
@@ -192,3 +192,4 @@ window.onclick = function(event) { if (event.target == document.getElementById('
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
 });
+
