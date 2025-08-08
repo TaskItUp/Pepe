@@ -131,4 +131,3 @@ window.onclick = function(event) { if (event.target == document.getElementById('
 
 // --- [APP ENTRY POINT] ---
 document.addEventListener('DOMContentLoaded', () => { initializeApp(); });
-
