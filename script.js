@@ -48,3 +48,117 @@ document.addEventListener("DOMContentLoaded", () => {
     startApp(null, storedRef); // test mode
   }
 });
+async function startApp(tgUser, referrerId = null) {
+  userId = tgUser ? tgUser.id.toString() : getTestUserId();
+  const userRef = db.collection("users").doc(userId);
+  const refId = referrerId || getReferrerId();
+
+  const doc = await userRef.get();
+
+  if (!doc.exists) {
+    const newUser = {
+      username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "Test User",
+      telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : "test_user",
+      profilePicUrl: `https://i.pravatar.cc/150?u=${userId}`,
+      balance: 0,
+      totalEarned: 0,
+      referralEarnings: 0,
+      totalRefers: 0,
+      tasksCompletedToday: 0,
+      totalAdsViewed: 0,
+      joinedBonusTasks: [],
+      referredBy: refId || null
+    };
+
+    if (refId) {
+      const refUserRef = db.collection("users").doc(refId);
+      await db.runTransaction(async (tx) => {
+        const refSnap = await tx.get(refUserRef);
+        if (refSnap.exists) {
+          tx.update(refUserRef, {
+            totalRefers: firebase.firestore.FieldValue.increment(1)
+          });
+        }
+        tx.set(userRef, newUser);
+      });
+    } else {
+      await userRef.set(newUser);
+    }
+  }
+
+  // Start listening to user changes
+  userRef.onSnapshot((doc) => {
+    userData = doc.data();
+    if (!initialized) {
+      setupUI();
+      setupTaskListeners();
+      initialized = true;
+    }
+    updateUI();
+  });
+}
+async function payReferrerCommission(amount) {
+  if (!userData.referredBy) return;
+  const commission = Math.floor(amount * COMMISSION_PERCENT / 100);
+  const refUserRef = db.collection("users").doc(userData.referredBy);
+
+  try {
+    await refUserRef.update({
+      balance: firebase.firestore.FieldValue.increment(commission),
+      referralEarnings: firebase.firestore.FieldValue.increment(commission)
+    });
+  } catch (e) {
+    console.error("Failed to pay referral commission:", e);
+  }
+}
+async function handleBonusTaskComplete(taskId, reward) {
+  if (userData.joinedBonusTasks.includes(taskId)) {
+    alert("You already completed this task.");
+    return;
+  }
+
+  const userRef = db.collection("users").doc(userId);
+  await userRef.update({
+    balance: firebase.firestore.FieldValue.increment(reward),
+    totalEarned: firebase.firestore.FieldValue.increment(reward),
+    joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId)
+  });
+
+  await payReferrerCommission(reward);
+  alert(`You earned ${reward} PEPE!`);
+}
+async function completeAdTask() {
+  if (userData.tasksCompletedToday >= DAILY_TASK_LIMIT) {
+    alert("All daily tasks completed.");
+    return;
+  }
+
+  // Simulate watching ad
+  await window.show_9685198(); // Your Monetag ad call
+
+  const userRef = db.collection("users").doc(userId);
+  await userRef.update({
+    balance: firebase.firestore.FieldValue.increment(AD_REWARD),
+    totalEarned: firebase.firestore.FieldValue.increment(AD_REWARD),
+    tasksCompletedToday: firebase.firestore.FieldValue.increment(1),
+    totalAdsViewed: firebase.firestore.FieldValue.increment(1),
+    lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp()
+  });
+
+  await payReferrerCommission(AD_REWARD);
+  alert(`You earned ${AD_REWARD} PEPE!`);
+}
+function openReferralModal() {
+  const link = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${userId}`;
+  document.getElementById("referral-link").value = link;
+  document.getElementById("refer-modal").style.display = "flex";
+}
+
+function copyReferralLink(btn) {
+  const input = document.getElementById("referral-link");
+  navigator.clipboard.writeText(input.value).then(() => {
+    btn.innerHTML = '<i class="fas fa-check"></i>';
+    setTimeout(() => btn.innerHTML = 'Copy', 1500);
+  });
+}
+
