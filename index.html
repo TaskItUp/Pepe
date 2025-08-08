@@ -15,7 +15,7 @@
 <body>
 
     <div id="app-container">
-        <!-- Home Tab -->
+        <!-- Home Tab (No Changes) -->
         <div id="home" class="tab-content active">
             <div class="header">
                 <div class="user-info">
@@ -40,10 +40,8 @@
                     <h3 id="ads-left-today">40</h3>
                 </div>
             </div>
-
             <div class="bonus-section">
                 <h3 class="section-title">Bonus Points</h3>
-                <!-- MODIFIED: Telegram URLs have been updated -->
                 <div class="task-card" id="task-channel_1" data-task-id="channel_1" data-url="https://t.me/ExpertEmon2" data-reward="300">
                     <div class="task-info">
                         <p class="task-title">Join Telegram Channel #1</p>
@@ -69,7 +67,7 @@
             </div>
         </div>
 
-        <!-- Earn Tab -->
+        <!-- Earn Tab (No Changes) -->
         <div id="earn" class="tab-content">
             <h2 class="page-title">Earn Rewards</h2>
             <div class="earn-task-card">
@@ -86,7 +84,8 @@
                 </button>
             </div>
         </div>
-        <!-- Withdraw Tab -->
+        
+        <!-- Withdraw Tab (MODIFIED) -->
         <div id="withdraw" class="tab-content">
             <h2 class="page-title">Withdraw Funds</h2>
             <div class="available-balance-banner">
@@ -97,7 +96,7 @@
                 <div class="input-group">
                     <label for="withdraw-method">Method</label>
                     <select id="withdraw-method">
-                        <option value="onchain">On-Chain Withdraw (Min: 10,000 PEPE)</option>
+                        <option value="binancepay">Binance Pay (Min: 10,000 PEPE)</option>
                     </select>
                 </div>
                 <div class="input-group">
@@ -105,15 +104,16 @@
                     <input type="number" id="withdraw-amount" placeholder="e.g., 15000">
                 </div>
                 <div class="input-group">
-                    <label for="wallet-id">PEPE Wallet Address (ERC-20)</label>
-                    <input type="text" id="wallet-id" placeholder="Enter your PEPE wallet address">
+                    <label for="wallet-id">Binance ID or Email</label>
+                    <input type="text" id="wallet-id" placeholder="Enter your Binance Pay ID or Email">
                 </div>
                 <button class="submit-withdrawal-btn" onclick="submitWithdrawal()">
                     <i class="fas fa-paper-plane"></i> Submit Request
                 </button>
             </div>
         </div>
-        <!-- Profile Tab -->
+
+        <!-- Profile Tab & Modals (No Changes) -->
         <div id="profile" class="tab-content">
             <div class="profile-header">
                 <img src="https://i.pravatar.cc/150" alt="User Profile" class="profile-pic-large">
@@ -137,8 +137,6 @@
                 </div>
             </div>
         </div>
-        
-        <!-- Modals and Nav Bar are unchanged -->
         <button class="refer-fab" onclick="openReferModal()"><i class="fas fa-gift"></i></button>
         <div id="refer-modal" class="modal-overlay">
             <div class="modal-content">
