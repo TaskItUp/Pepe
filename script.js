@@ -20,6 +20,7 @@ let userState = {};
 let telegramUserId = null;
 let isInitialized = false;
 const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
+const GITHUB_PAGES_URL = "https://your-github-username.github.io/your-repo-name/"; // <-- IMPORTANT!
 
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
@@ -30,9 +31,23 @@ const WITHDRAWAL_MINIMUMS = {
 
 // --- [CORE APP LOGIC] ---
 
-function initializeApp(tgUser) {
-    telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
+async function initializeApp() {
+    const params = new URLSearchParams(window.location.search);
+    const referrerId = params.get('ref');
     
+    // REDIRECT LOGIC: If a referrer link is clicked, save it and redirect to the bot.
+    if (referrerId) {
+        const potentialUserId = getLocalUserId(false); // Get ID without creating a new one
+        // Only redirect if this user doesn't have an ID yet (i.e., they are new)
+        if (!potentialUserId) {
+            console.log(`Referral link clicked. Saving referrer ${referrerId} and redirecting to bot.`);
+            localStorage.setItem('pendingReferrerId', referrerId);
+            window.location.href = `https://t.me/${TELEGRAM_BOT_USERNAME}`;
+            return; // Stop execution to allow redirect
+        }
+    }
+
+    telegramUserId = getLocalUserId(true); // Get or create the user's ID
     console.log(`Initializing app for User ID: ${telegramUserId}`);
     const userRef = db.collection('users').doc(telegramUserId);
 
@@ -40,21 +55,21 @@ function initializeApp(tgUser) {
     userRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
             console.log('New user detected. Creating account...');
-            const referrerId = tgUser?.start_param || new URLSearchParams(window.location.search).get('ref');
+            const savedReferrerId = localStorage.getItem('pendingReferrerId');
             
             const newUserState = {
-                username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "User",
-                telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : `@test_user`,
+                username: "User",
+                telegramUsername: `@user_${telegramUserId.substring(0, 6)}`,
                 profilePicUrl: generatePlaceholderAvatar(telegramUserId),
-                balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0,
-                totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
-                referredBy: referrerId || null,
+                balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null,
+                totalEarned: 0, totalAdsViewed: 0, totalRefers: 0,
+                joinedBonusTasks: [],
+                referredBy: savedReferrerId || null,
                 referralEarnings: 0
             };
             
-            // --- FIXED: TRANSACTIONAL REFERRAL CREDIT AT SIGNUP ---
-            if (referrerId) {
-                const referrerRef = db.collection('users').doc(referrerId);
+            if (savedReferrerId) {
+                const referrerRef = db.collection('users').doc(savedReferrerId);
                 try {
                     await db.runTransaction(async (transaction) => {
                         const referrerDoc = await transaction.get(referrerRef);
@@ -64,14 +79,15 @@ function initializeApp(tgUser) {
                         transaction.update(referrerRef, {
                             totalRefers: firebase.firestore.FieldValue.increment(1)
                         });
-                        transaction.set(userRef, newUserState); // Create the new user within the transaction
+                        transaction.set(userRef, newUserState);
                     });
+                    localStorage.removeItem('pendingReferrerId'); // Clean up after successful credit
                 } catch (error) {
                     console.error("Referral transaction failed, creating user normally.", error);
-                    await userRef.set(newUserState); // Create user anyway if transaction fails
+                    await userRef.set(newUserState);
                 }
             } else {
-                await userRef.set(newUserState); // Create user if there's no referrer
+                await userRef.set(newUserState);
             }
         } else {
             console.log('User data updated in real-time.');
@@ -84,11 +100,22 @@ function initializeApp(tgUser) {
             isInitialized = true;
         }
         updateUI();
-
     }, (error) => console.error("Error listening to user document:", error));
 }
 
-function getFakeUserIdForTesting() { let storedId = localStorage.getItem('localAppUserId'); if (storedId) return storedId; const newId = 'test_user_' + Date.now().toString(36); localStorage.setItem('localAppUserId', newId); return newId; }
+function getLocalUserId(createIfNotFound) {
+    let storedId = localStorage.getItem('localAppUserId');
+    if (storedId) {
+        return storedId;
+    }
+    if (createIfNotFound) {
+        const newId = 'user_' + Date.now().toString(36) + Math.random().toString(36).substr(2);
+        localStorage.setItem('localAppUserId', newId);
+        return newId;
+    }
+    return null;
+}
+
 function generatePlaceholderAvatar(userId) { return `https://i.pravatar.cc/150?u=${userId}`; }
 
 function updateUI() {
@@ -96,7 +123,6 @@ function updateUI() {
     const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
     const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
     const totalRefersString = (userState.totalRefers || 0).toLocaleString();
-
     document.querySelectorAll('.profile-pic, .profile-pic-large').forEach(img => { if (userState.profilePicUrl) img.src = userState.profilePicUrl; });
     document.getElementById('balance-home').textContent = balanceString;
     document.getElementById('withdraw-balance').textContent = balanceString;
@@ -130,20 +156,15 @@ function listenForWithdrawalHistory() { const historyList = document.getElementB
 
 // --- FIXED: SIMPLIFIED COMMISSION PAYMENT LOGIC ---
 async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy) return; // Exit if user was not referred
-
+    if (!userState.referredBy) return;
     const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
     if (commissionAmount <= 0) return;
-
     const referrerRef = db.collection('users').doc(userState.referredBy);
-
-    // This simple update is now safe because the referral count is handled at signup.
     return referrerRef.update({
         balance: firebase.firestore.FieldValue.increment(commissionAmount),
         referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
     }).catch(error => console.error("Failed to pay commission:", error));
 }
-
 
 function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => { handleJoinClick(taskId, url); }); } if (verifyBtn) { verifyBtn.addEventListener('click', () => { handleVerifyClick(taskId, reward); }); } }); }
 async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks.includes(taskId)) { alert("You have already completed this task."); return; } const taskCard = document.getElementById(`task-${taskId}`); const verifyButton = taskCard.querySelector('.verify-btn'); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { const userRef = db.collection('users').doc(telegramUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); await payReferralCommission(reward); alert(`Verification successful! You've earned ${reward} PEPE.`); } catch (error) { console.error("Error rewarding user for channel join:", error); alert("An error occurred. Please try again."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
@@ -154,18 +175,20 @@ window.submitWithdrawal = async function() { const amount = parseInt(document.ge
 
 // --- [UTILITY FUNCTIONS] ---
 window.showTab = function(tabName, element) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tabName).classList.add('active'); document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); element.classList.add('active'); }
-window.openReferModal = function() { if (!TELEGRAM_BOT_USERNAME) { alert("Error: Bot username not set."); return; } const referralLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${telegramUserId}`; document.getElementById('referral-link').value = referralLink; document.getElementById('refer-modal').style.display = 'flex'; }
+window.openReferModal = function() {
+    if (GITHUB_PAGES_URL.includes("your-github-username")) {
+        alert("CRITICAL ERROR: Please update the GITHUB_PAGES_URL in the script.js file.");
+        return;
+    }
+    const referralLink = `${GITHUB_PAGES_URL}?ref=${telegramUserId}`;
+    document.getElementById('referral-link').value = referralLink;
+    document.getElementById('refer-modal').style.display = 'flex';
+}
 window.closeReferModal = function() { document.getElementById('refer-modal').style.display = 'none'; }
 window.copyReferralLink = function(button) { const linkInput = document.getElementById('referral-link'); navigator.clipboard.writeText(linkInput.value).then(() => { const originalIcon = button.innerHTML; button.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => { button.innerHTML = originalIcon; }, 1500); }).catch(err => console.error('Failed to copy text: ', err)); }
 window.onclick = function(event) { if (event.target == document.getElementById('refer-modal')) { closeReferModal(); } }
 
 // --- [APP ENTRY POINT] ---
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.Telegram && window.Telegram.WebApp) {
-        Telegram.WebApp.ready();
-        initializeApp(window.Telegram.WebApp.initDataUnsafe.user);
-    } else {
-        console.warn("Telegram script not found. Running in browser test mode.");
-        initializeApp(null);
-    }
+    initializeApp();
 });
