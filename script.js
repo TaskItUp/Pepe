@@ -18,7 +18,8 @@ const db = firebase.firestore();
 // --- [GLOBAL STATE & CONSTANTS] ---
 let userState = {};
 let localUserId = null;
-const TELEGRAM_BOT_USERNAME = "TaskItUpBot"; // e.g., "MyPepeCoinBot"
+// MODIFIED: Hardcoded your bot's username
+const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
@@ -27,27 +28,55 @@ const WITHDRAWAL_MINIMUMS = {
     binancepay: 10000 
 };
 
-// --- [CORE APP LOGIC] ---
+// --- [CORE APP LOGIC WITH REFERRAL FIX] ---
 
 async function initializeApp() {
     localUserId = getLocalUserId();
     let referrerId = null;
+
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
         referrerId = window.Telegram.WebApp.initDataUnsafe.start_param || null;
     }
-    if (!referrerId) { const params = new URLSearchParams(window.location.search); referrerId = params.get('ref') || null; }
+    if (!referrerId) {
+        const params = new URLSearchParams(window.location.search);
+        referrerId = params.get('ref') || null;
+    }
 
     const userRef = db.collection('users').doc(localUserId);
     const doc = await userRef.get();
+
     if (!doc.exists) {
+        console.log('New user detected. Creating default account...');
         const newUserState = {
-            username: "User", telegramUsername: `@user_${localUserId.substring(0,6)}`, profilePicUrl: generatePlaceholderAvatar(localUserId),
-            balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
-            referredBy: referrerId, referralEarnings: 0
+            username: "User",
+            telegramUsername: `@user_${localUserId.substring(0,6)}`,
+            profilePicUrl: generatePlaceholderAvatar(localUserId),
+            balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null,
+            totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
+            referredBy: referrerId,
+            referralEarnings: 0
         };
         await userRef.set(newUserState);
         userState = newUserState;
+
+        // --- FIXED: UPDATE THE REFERRER'S PROFILE ---
+        if (referrerId) {
+            console.log(`This user was referred by ${referrerId}. Updating referrer's count.`);
+            const referrerRef = db.collection('users').doc(referrerId);
+            try {
+                // Use FieldValue.increment to safely update the count
+                await referrerRef.update({
+                    totalRefers: firebase.firestore.FieldValue.increment(1)
+                });
+                console.log("Referrer's count updated successfully.");
+            } catch (error) {
+                console.error("Failed to update referrer count. Referrer ID might be invalid.", error);
+            }
+        }
+        // --- END OF FIX ---
+
     } else {
+        console.log('Returning user. Loading data from Firebase...');
         userState = doc.data();
         if (userState.lastTaskTimestamp) {
             const now = new Date();
@@ -70,6 +99,8 @@ function updateUI() {
     const balanceString = Math.floor(userState.balance).toLocaleString();
     const totalEarnedString = Math.floor(userState.totalEarned).toLocaleString();
     const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
+    const totalRefersString = (userState.totalRefers || 0).toLocaleString();
+
     document.querySelectorAll('.profile-pic, .profile-pic-large').forEach(img => { if (userState.profilePicUrl) img.src = userState.profilePicUrl; });
     document.getElementById('balance-home').textContent = balanceString;
     document.getElementById('withdraw-balance').textContent = balanceString;
@@ -88,8 +119,9 @@ function updateUI() {
     taskButton.innerHTML = tasksCompleted >= DAILY_TASK_LIMIT ? '<i class="fas fa-check-circle"></i> All tasks done' : '<i class="fas fa-play-circle"></i> Watch Ad';
     document.getElementById('earned-so-far').textContent = totalEarnedString;
     document.getElementById('total-ads-viewed').textContent = userState.totalAdsViewed;
-    document.getElementById('total-refers').textContent = userState.totalRefers;
+    document.getElementById('total-refers').textContent = totalRefersString;
     document.getElementById('refer-earnings').textContent = referralEarningsString;
+    document.getElementById('refer-count').textContent = totalRefersString;
     userState.joinedBonusTasks.forEach(taskId => {
         const taskCard = document.getElementById(`task-${taskId}`);
         if (taskCard) taskCard.classList.add('completed');
@@ -97,22 +129,7 @@ function updateUI() {
 }
 
 function renderHistoryItem(withdrawalData) { const item = document.createElement('div'); item.className = `history-item ${withdrawalData.status}`; const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : withdrawalData.requestedAt; const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); item.innerHTML = ` <div class="history-details"> <div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div> <div class="history-date">${formattedDate}</div> </div> <div class="history-status ${withdrawalData.status}"> ${withdrawalData.status} </div> `; return item; }
-function listenForWithdrawalHistory() {
-    const historyList = document.getElementById('history-list');
-    db.collection('withdrawals').where('userId', '==', localUserId).orderBy('requestedAt', 'desc').limit(10)
-      .onSnapshot(querySnapshot => {
-          if (querySnapshot.empty) {
-              historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>';
-              return;
-          }
-          historyList.innerHTML = '';
-          querySnapshot.forEach(doc => {
-              const withdrawal = doc.data();
-              const itemElement = renderHistoryItem(withdrawal);
-              historyList.appendChild(itemElement);
-          });
-      });
-}
+function listenForWithdrawalHistory() { const historyList = document.getElementById('history-list'); db.collection('withdrawals').where('userId', '==', localUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(querySnapshot => { if (querySnapshot.empty) { historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>'; return; } historyList.innerHTML = ''; querySnapshot.forEach(doc => { const withdrawal = doc.data(); const itemElement = renderHistoryItem(withdrawal); historyList.appendChild(itemElement); }); }); }
 
 async function payReferralCommission(earnedAmount) { if (!userState.referredBy) return; const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE); if (commissionAmount > 0) { const referrerRef = db.collection('users').doc(userState.referredBy); await referrerRef.update({ balance: firebase.firestore.FieldValue.increment(commissionAmount), referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount) }).catch(error => console.error("Failed to pay commission:", error)); } }
 function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => { handleJoinClick(taskId, url); }); } if (verifyBtn) { verifyBtn.addEventListener('click', () => { handleVerifyClick(taskId, reward); }); } }); }
