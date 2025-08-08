@@ -15,7 +15,7 @@
 <body>
 
     <div id="app-container">
-        <!-- Home Tab (No Changes) -->
+        <!-- Home Tab -->
         <div id="home" class="tab-content active">
             <div class="header">
                 <div class="user-info">
@@ -67,7 +67,7 @@
             </div>
         </div>
 
-        <!-- Earn Tab (No Changes) -->
+        <!-- Earn Tab -->
         <div id="earn" class="tab-content">
             <h2 class="page-title">Earn Rewards</h2>
             <div class="earn-task-card">
@@ -85,7 +85,7 @@
             </div>
         </div>
         
-        <!-- Withdraw Tab (MODIFIED) -->
+        <!-- Withdraw Tab -->
         <div id="withdraw" class="tab-content">
             <h2 class="page-title">Withdraw Funds</h2>
             <div class="available-balance-banner">
@@ -111,9 +111,18 @@
                     <i class="fas fa-paper-plane"></i> Submit Request
                 </button>
             </div>
+
+            <!-- Transaction History Section -->
+            <div class="transaction-history">
+                <h3 class="section-title">Recent Withdrawals</h3>
+                <div id="history-list">
+                    <!-- History items will be injected here by JavaScript -->
+                    <p class="no-history">You have no withdrawal history yet.</p>
+                </div>
+            </div>
         </div>
 
-        <!-- Profile Tab & Modals (No Changes) -->
+        <!-- Profile Tab -->
         <div id="profile" class="tab-content">
             <div class="profile-header">
                 <img src="https://i.pravatar.cc/150" alt="User Profile" class="profile-pic-large">
@@ -137,6 +146,8 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Modals -->
         <button class="refer-fab" onclick="openReferModal()"><i class="fas fa-gift"></i></button>
         <div id="refer-modal" class="modal-overlay">
             <div class="modal-content">
@@ -162,6 +173,8 @@
             </div>
         </div>
     </div>
+    
+    <!-- Navigation Bar -->
     <nav class="nav-bar">
         <a href="#" class="nav-item active" onclick="showTab('home', this)"><i class="fas fa-home"></i><span>Home</span></a>
         <a href="#" class="nav-item" onclick="showTab('earn', this)"><i class="fas fa-coins"></i><span>Earn</span></a>
