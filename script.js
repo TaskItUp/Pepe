@@ -91,7 +91,28 @@ function updateUI() {
     });
 }
 
-// --- REAL-TIME HISTORY LISTENER ---
+// --- NEW HELPER FUNCTION TO RENDER A SINGLE HISTORY ITEM ---
+function renderHistoryItem(withdrawalData) {
+    const item = document.createElement('div');
+    item.className = `history-item ${withdrawalData.status}`;
+
+    // Handle both Firebase Timestamps and regular JS Date objects
+    const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : withdrawalData.requestedAt;
+    const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    item.innerHTML = `
+        <div class="history-details">
+            <div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div>
+            <div class="history-date">${formattedDate}</div>
+        </div>
+        <div class="history-status ${withdrawalData.status}">
+            ${withdrawalData.status}
+        </div>
+    `;
+    return item;
+}
+
+// --- REAL-TIME HISTORY LISTENER (NOW USES THE HELPER FUNCTION) ---
 function listenForWithdrawalHistory() {
     const historyList = document.getElementById('history-list');
     db.collection('withdrawals').where('userId', '==', localUserId).orderBy('requestedAt', 'desc').limit(10)
@@ -100,33 +121,78 @@ function listenForWithdrawalHistory() {
               historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>';
               return;
           }
-          historyList.innerHTML = '';
+          historyList.innerHTML = ''; // Clear before repopulating
           querySnapshot.forEach(doc => {
               const withdrawal = doc.data();
-              const item = document.createElement('div');
-              item.className = `history-item ${withdrawal.status}`;
-              const date = withdrawal.requestedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              item.innerHTML = `
-                  <div class="history-details">
-                      <div class="history-amount">${withdrawal.amount.toLocaleString()} PEPE</div>
-                      <div class="history-date">${date}</div>
-                  </div>
-                  <div class="history-status ${withdrawal.status}">
-                      ${withdrawal.status}
-                  </div>
-              `;
-              historyList.appendChild(item);
+              const itemElement = renderHistoryItem(withdrawal); // Use the helper
+              historyList.appendChild(itemElement);
           });
       });
 }
 
+// All other functions from here down are mostly unchanged, except submitWithdrawal
 async function payReferralCommission(earnedAmount) { if (!userState.referredBy) return; const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE); if (commissionAmount > 0) { const referrerRef = db.collection('users').doc(userState.referredBy); await referrerRef.update({ balance: firebase.firestore.FieldValue.increment(commissionAmount), referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount) }).catch(error => console.error("Failed to pay commission:", error)); } }
 function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => { handleJoinClick(taskId, url); }); } if (verifyBtn) { verifyBtn.addEventListener('click', () => { handleVerifyClick(taskId, reward); }); } }); }
 function handleJoinClick(taskId, url) { const taskCard = document.getElementById(`task-${taskId}`); if (!taskCard) return; const joinButton = taskCard.querySelector('.join-btn'); const verifyButton = taskCard.querySelector('.verify-btn'); window.open(url, '_blank'); alert("After joining, return to the app and press 'Verify' to claim your reward."); if (verifyButton) verifyButton.disabled = false; if (joinButton) joinButton.disabled = true; }
 async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks.includes(taskId)) { alert("You have already completed this task."); return; } const taskCard = document.getElementById(`task-${taskId}`); const verifyButton = taskCard.querySelector('.verify-btn'); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); userState.balance += reward; userState.totalEarned += reward; userState.joinedBonusTasks.push(taskId); await payReferralCommission(reward); alert(`Verification successful! You've earned ${reward} PEPE.`); updateUI(); } catch (error) { console.error("Error rewarding user for channel join:", error); alert("An error occurred. Please try again."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
-
 window.completeAdTask = async function() { if (userState.tasksCompletedToday >= DAILY_TASK_LIMIT) { alert("You have completed all ad tasks for today!"); return; } const taskButton = document.getElementById('start-task-button'); try { taskButton.disabled = true; taskButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Ad...'; await window.show_9685198(); const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(AD_REWARD), totalEarned: firebase.firestore.FieldValue.increment(AD_REWARD), tasksCompletedToday: firebase.firestore.FieldValue.increment(1), totalAdsViewed: firebase.firestore.FieldValue.increment(1), lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp() }); userState.balance += AD_REWARD; userState.totalEarned += AD_REWARD; userState.tasksCompletedToday++; userState.totalAdsViewed++; await payReferralCommission(AD_REWARD); alert(`Success! ${AD_REWARD} PEPE has been added to your balance.`); } catch (error) { console.error("An error occurred during the ad task:", error); alert("Ad could not be shown or was closed early. Please try again."); } finally { updateUI(); } }
-window.submitWithdrawal = async function() { const amount = parseInt(document.getElementById('withdraw-amount').value); const method = document.getElementById('withdraw-method').value; const walletId = document.getElementById('wallet-id').value.trim(); const minAmount = WITHDRAWAL_MINIMUMS[method]; if (isNaN(amount) || amount <= 0 || !walletId) { alert('Please enter a valid amount and your Binance ID or Email.'); return; } if (amount < minAmount) { alert(`Withdrawal failed. The minimum is ${minAmount.toLocaleString()} PEPE.`); return; } if (amount > userState.balance) { alert('Withdrawal failed. You do not have enough balance.'); return; } await db.collection('withdrawals').add({ userId: localUserId, username: userState.telegramUsername, amount: amount, method: "Binance Pay", walletId: walletId, currency: "PEPE", status: "pending", requestedAt: firebase.firestore.FieldValue.serverTimestamp() }); const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(-amount) }); alert(`Success! Your withdrawal request for ${amount.toLocaleString()} PEPE has been submitted.`); userState.balance -= amount; document.getElementById('withdraw-amount').value = ''; document.getElementById('wallet-id').value = ''; updateUI(); }
+
+// MODIFIED: This function now performs an "Optimistic UI Update"
+window.submitWithdrawal = async function() {
+    const amount = parseInt(document.getElementById('withdraw-amount').value);
+    const method = document.getElementById('withdraw-method').value;
+    const walletId = document.getElementById('wallet-id').value.trim();
+    const minAmount = WITHDRAWAL_MINIMUMS[method];
+
+    if (isNaN(amount) || amount <= 0 || !walletId) { alert('Please enter a valid amount and your Binance ID or Email.'); return; }
+    if (amount < minAmount) { alert(`Withdrawal failed. The minimum is ${minAmount.toLocaleString()} PEPE.`); return; }
+    if (amount > userState.balance) { alert('Withdrawal failed. You do not have enough balance.'); return; }
+
+    try {
+        // --- START OF OPTIMISTIC UPDATE ---
+        const historyList = document.getElementById('history-list');
+        const noHistoryMsg = historyList.querySelector('.no-history');
+        if (noHistoryMsg) {
+            noHistoryMsg.remove(); // Remove the "no history" message
+        }
+
+        // Create a temporary data object for the new withdrawal
+        const optimisticData = {
+            amount: amount,
+            status: 'pending',
+            requestedAt: new Date() // Use current time
+        };
+
+        // Render the new item and add it to the top of the list instantly
+        const optimisticItem = renderHistoryItem(optimisticData);
+        historyList.prepend(optimisticItem);
+        // --- END OF OPTIMISTIC UPDATE ---
+
+        // Now, send the real request to Firebase
+        await db.collection('withdrawals').add({
+            userId: localUserId, username: userState.telegramUsername, amount: amount,
+            method: "Binance Pay", walletId: walletId, currency: "PEPE",
+            status: "pending", requestedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        
+        // And update the user's balance in the database
+        const userRef = db.collection('users').doc(localUserId);
+        await userRef.update({ balance: firebase.firestore.FieldValue.increment(-amount) });
+        
+        alert(`Success! Your withdrawal request for ${amount.toLocaleString()} PEPE has been submitted.`);
+        
+        // Update local state and the rest of the UI
+        userState.balance -= amount;
+        document.getElementById('withdraw-amount').value = '';
+        document.getElementById('wallet-id').value = '';
+        updateUI();
+
+    } catch (error) {
+        console.error("Withdrawal failed:", error);
+        alert("There was an error submitting your request. Please try again.");
+        // If something fails, the real-time listener will eventually correct the UI.
+    }
+}
 
 // --- [UTILITY FUNCTIONS] ---
 window.showTab = function(tabName, element) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tabName).classList.add('active'); document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); element.classList.add('active'); }
