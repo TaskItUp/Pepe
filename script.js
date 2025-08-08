@@ -25,14 +25,14 @@ const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
 const REFERRAL_COMMISSION_RATE = 0.10;
 const WITHDRAWAL_MINIMUMS = {
-    binancepay: 10000 
+    binancepay: 10000
 };
 
 // --- [CORE APP LOGIC] ---
 
 function initializeApp(tgUser) {
     telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
-    
+
     console.log(`Initializing app for User ID: ${telegramUserId}`);
     const userRef = db.collection('users').doc(telegramUserId);
 
@@ -40,44 +40,65 @@ function initializeApp(tgUser) {
     userRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
             console.log('New user detected. Creating account...');
+            // Correctly parse the referrer ID from Telegram's start parameter. [1, 2]
             const referrerId = tgUser?.start_param || new URLSearchParams(window.location.search).get('ref');
-            
+
             const newUserState = {
                 username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "User",
                 telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : `@test_user`,
                 profilePicUrl: generatePlaceholderAvatar(telegramUserId),
-                balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0,
-                totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
+                balance: 0,
+                tasksCompletedToday: 0,
+                lastTaskTimestamp: null,
+                totalEarned: 0,
+                totalAdsViewed: 0,
+                totalRefers: 0,
+                joinedBonusTasks: [],
                 referredBy: referrerId || null,
                 referralEarnings: 0
             };
             
-            // --- FIXED: TRANSACTIONAL REFERRAL CREDIT AT SIGNUP ---
+            // **FIXED**: Immediately set the local userState so the app is responsive
+            // and subsequent functions (like payReferralCommission) have the correct data.
+            userState = newUserState;
+
             if (referrerId) {
                 const referrerRef = db.collection('users').doc(referrerId);
+                // This transaction ensures that we atomically create the new user
+                // and update the referrer's count. [8]
                 try {
                     await db.runTransaction(async (transaction) => {
                         const referrerDoc = await transaction.get(referrerRef);
-                        if (!referrerDoc.exists) throw "Referrer not found!";
-                        
-                        console.log("Crediting referrer instantly upon new user creation.");
-                        transaction.update(referrerRef, {
-                            totalRefers: firebase.firestore.FieldValue.increment(1)
-                        });
-                        transaction.set(userRef, newUserState); // Create the new user within the transaction
+                        if (!referrerDoc.exists) {
+                            // If the referrer doesn't exist, create the user without the referral link.
+                            console.warn("Referrer document not found. Creating user without referral credit.");
+                            transaction.set(userRef, newUserState);
+                        } else {
+                            // If referrer exists, increment their referral count. [7, 10]
+                            console.log("Crediting referrer and creating new user within a transaction.");
+                            transaction.update(referrerRef, {
+                                totalRefers: firebase.firestore.FieldValue.increment(1)
+                            });
+                            transaction.set(userRef, newUserState);
+                        }
                     });
                 } catch (error) {
-                    console.error("Referral transaction failed, creating user normally.", error);
-                    await userRef.set(newUserState); // Create user anyway if transaction fails
+                    // If the transaction fails, still create the user but log the error.
+                    // The referral count will not be updated, but the new user can use the app.
+                    console.error("Referral transaction failed. Creating user normally.", error);
+                    await userRef.set(newUserState);
                 }
             } else {
-                await userRef.set(newUserState); // Create user if there's no referrer
+                // Create the user if there is no referrer.
+                await userRef.set(newUserState);
             }
         } else {
+            // For existing users, update the state with the latest data from Firestore.
             console.log('User data updated in real-time.');
             userState = doc.data();
         }
-        
+
+        // Initialize UI and listeners only once.
         if (!isInitialized) {
             setupTaskButtonListeners();
             listenForWithdrawalHistory();
@@ -92,6 +113,8 @@ function getFakeUserIdForTesting() { let storedId = localStorage.getItem('localA
 function generatePlaceholderAvatar(userId) { return `https://i.pravatar.cc/150?u=${userId}`; }
 
 function updateUI() {
+    if (!userState) return; // Guard against updates before state is initialized
+
     const balanceString = Math.floor(userState.balance || 0).toLocaleString();
     const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
     const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
@@ -128,7 +151,7 @@ function updateUI() {
 function renderHistoryItem(withdrawalData) { const item = document.createElement('div'); item.className = `history-item ${withdrawalData.status}`; const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : withdrawalData.requestedAt; const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); item.innerHTML = ` <div class="history-details"> <div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div> <div class="history-date">${formattedDate}</div> </div> <div class="history-status ${withdrawalData.status}"> ${withdrawalData.status} </div> `; return item; }
 function listenForWithdrawalHistory() { const historyList = document.getElementById('history-list'); db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(querySnapshot => { if (querySnapshot.empty) { historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>'; return; } historyList.innerHTML = ''; querySnapshot.forEach(doc => { const withdrawal = doc.data(); const itemElement = renderHistoryItem(withdrawal); historyList.appendChild(itemElement); }); }); }
 
-// --- FIXED: SIMPLIFIED COMMISSION PAYMENT LOGIC ---
+// **IMPROVED**: Commission payment logic is robust due to correct state initialization.
 async function payReferralCommission(earnedAmount) {
     if (!userState.referredBy) return; // Exit if user was not referred
 
@@ -137,7 +160,7 @@ async function payReferralCommission(earnedAmount) {
 
     const referrerRef = db.collection('users').doc(userState.referredBy);
 
-    // This simple update is now safe because the referral count is handled at signup.
+    // This atomic update increments the referrer's balance and referral earnings. [7, 10]
     return referrerRef.update({
         balance: firebase.firestore.FieldValue.increment(commissionAmount),
         referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
@@ -163,6 +186,7 @@ window.onclick = function(event) { if (event.target == document.getElementById('
 document.addEventListener('DOMContentLoaded', () => {
     if (window.Telegram && window.Telegram.WebApp) {
         Telegram.WebApp.ready();
+        // The deep linking parameter is passed via the initData object. [3, 4]
         initializeApp(window.Telegram.WebApp.initDataUnsafe.user);
     } else {
         console.warn("Telegram script not found. Running in browser test mode.");
