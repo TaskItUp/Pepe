@@ -36,7 +36,10 @@ async function initializeApp() {
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
         referrerId = window.Telegram.WebApp.initDataUnsafe.start_param || null;
     }
-    if (!referrerId) { const params = new URLSearchParams(window.location.search); referrerId = params.get('ref') || null; }
+    if (!referrerId) {
+        const params = new URLSearchParams(window.location.search);
+        referrerId = params.get('ref') || null;
+    }
 
     const userRef = db.collection('users').doc(localUserId);
     const doc = await userRef.get();
@@ -44,10 +47,13 @@ async function initializeApp() {
     if (!doc.exists) {
         console.log('New user detected. Creating default account...');
         const newUserState = {
-            username: "User", telegramUsername: `@user_${localUserId.substring(0,6)}`, profilePicUrl: generatePlaceholderAvatar(localUserId),
-            balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
+            username: "User",
+            telegramUsername: `@user_${localUserId.substring(0,6)}`,
+            profilePicUrl: generatePlaceholderAvatar(localUserId),
+            balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null,
+            totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
             referredBy: referrerId,
-            isReferralCredited: false, // NEW: Flag to track if the referrer has been credited for the signup
+            isReferralCredited: false, // Flag to track if the referrer has been credited
             referralEarnings: 0
         };
         await userRef.set(newUserState);
@@ -110,34 +116,37 @@ function listenForWithdrawalHistory() { const historyList = document.getElementB
 
 // --- FIXED: ROBUST REFERRAL COMMISSION LOGIC ---
 async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy) return; // Exit if user was not referred
+    if (!userState.referredBy) return;
 
     const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
-    if (commissionAmount <= 0) return; // Exit if commission is zero
+    if (commissionAmount <= 0) return;
 
     const referrerRef = db.collection('users').doc(userState.referredBy);
     
-    // Check if this is the first time we are crediting this referral
     if (!userState.isReferralCredited) {
         console.log(`First earning for referred user. Crediting referrer with +1 count and commission.`);
-        // First-time transaction: credit the referral count AND pay commission
-        await referrerRef.update({
-            totalRefers: firebase.firestore.FieldValue.increment(1),
-            balance: firebase.firestore.FieldValue.increment(commissionAmount),
-            referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-        }).catch(error => console.error("Failed to pay initial commission and credit referral:", error));
-        
-        // Mark this user's referral as credited so it doesn't happen again
-        const currentUserRef = db.collection('users').doc(localUserId);
-        await currentUserRef.update({ isReferralCredited: true });
-        userState.isReferralCredited = true; // Update local state as well
+        try {
+            await referrerRef.update({
+                totalRefers: firebase.firestore.FieldValue.increment(1),
+                balance: firebase.firestore.FieldValue.increment(commissionAmount),
+                referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+            });
+            const currentUserRef = db.collection('users').doc(localUserId);
+            await currentUserRef.update({ isReferralCredited: true });
+            userState.isReferralCredited = true;
+        } catch (error) {
+            console.error("Failed to pay initial commission and credit referral:", error);
+        }
     } else {
-        // Subsequent earnings: just pay the commission
         console.log(`Subsequent earning. Paying commission of ${commissionAmount} PEPE.`);
-        await referrerRef.update({
-            balance: firebase.firestore.FieldValue.increment(commissionAmount),
-            referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-        }).catch(error => console.error("Failed to pay subsequent commission:", error));
+        try {
+            await referrerRef.update({
+                balance: firebase.firestore.FieldValue.increment(commissionAmount),
+                referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+            });
+        } catch (error) {
+            console.error("Failed to pay subsequent commission:", error);
+        }
     }
 }
 
