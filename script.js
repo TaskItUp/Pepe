@@ -18,7 +18,6 @@ const db = firebase.firestore();
 // --- [GLOBAL STATE & CONSTANTS] ---
 let userState = {};
 let localUserId = null;
-// MODIFIED: Hardcoded your bot's username
 const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 
 const DAILY_TASK_LIMIT = 40;
@@ -37,10 +36,7 @@ async function initializeApp() {
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
         referrerId = window.Telegram.WebApp.initDataUnsafe.start_param || null;
     }
-    if (!referrerId) {
-        const params = new URLSearchParams(window.location.search);
-        referrerId = params.get('ref') || null;
-    }
+    if (!referrerId) { const params = new URLSearchParams(window.location.search); referrerId = params.get('ref') || null; }
 
     const userRef = db.collection('users').doc(localUserId);
     const doc = await userRef.get();
@@ -48,33 +44,14 @@ async function initializeApp() {
     if (!doc.exists) {
         console.log('New user detected. Creating default account...');
         const newUserState = {
-            username: "User",
-            telegramUsername: `@user_${localUserId.substring(0,6)}`,
-            profilePicUrl: generatePlaceholderAvatar(localUserId),
-            balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null,
-            totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
+            username: "User", telegramUsername: `@user_${localUserId.substring(0,6)}`, profilePicUrl: generatePlaceholderAvatar(localUserId),
+            balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
             referredBy: referrerId,
+            isReferralCredited: false, // NEW: Flag to track if the referrer has been credited for the signup
             referralEarnings: 0
         };
         await userRef.set(newUserState);
         userState = newUserState;
-
-        // --- FIXED: UPDATE THE REFERRER'S PROFILE ---
-        if (referrerId) {
-            console.log(`This user was referred by ${referrerId}. Updating referrer's count.`);
-            const referrerRef = db.collection('users').doc(referrerId);
-            try {
-                // Use FieldValue.increment to safely update the count
-                await referrerRef.update({
-                    totalRefers: firebase.firestore.FieldValue.increment(1)
-                });
-                console.log("Referrer's count updated successfully.");
-            } catch (error) {
-                console.error("Failed to update referrer count. Referrer ID might be invalid.", error);
-            }
-        }
-        // --- END OF FIX ---
-
     } else {
         console.log('Returning user. Loading data from Firebase...');
         userState = doc.data();
@@ -131,7 +108,39 @@ function updateUI() {
 function renderHistoryItem(withdrawalData) { const item = document.createElement('div'); item.className = `history-item ${withdrawalData.status}`; const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : withdrawalData.requestedAt; const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); item.innerHTML = ` <div class="history-details"> <div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div> <div class="history-date">${formattedDate}</div> </div> <div class="history-status ${withdrawalData.status}"> ${withdrawalData.status} </div> `; return item; }
 function listenForWithdrawalHistory() { const historyList = document.getElementById('history-list'); db.collection('withdrawals').where('userId', '==', localUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(querySnapshot => { if (querySnapshot.empty) { historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>'; return; } historyList.innerHTML = ''; querySnapshot.forEach(doc => { const withdrawal = doc.data(); const itemElement = renderHistoryItem(withdrawal); historyList.appendChild(itemElement); }); }); }
 
-async function payReferralCommission(earnedAmount) { if (!userState.referredBy) return; const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE); if (commissionAmount > 0) { const referrerRef = db.collection('users').doc(userState.referredBy); await referrerRef.update({ balance: firebase.firestore.FieldValue.increment(commissionAmount), referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount) }).catch(error => console.error("Failed to pay commission:", error)); } }
+// --- FIXED: ROBUST REFERRAL COMMISSION LOGIC ---
+async function payReferralCommission(earnedAmount) {
+    if (!userState.referredBy) return; // Exit if user was not referred
+
+    const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
+    if (commissionAmount <= 0) return; // Exit if commission is zero
+
+    const referrerRef = db.collection('users').doc(userState.referredBy);
+    
+    // Check if this is the first time we are crediting this referral
+    if (!userState.isReferralCredited) {
+        console.log(`First earning for referred user. Crediting referrer with +1 count and commission.`);
+        // First-time transaction: credit the referral count AND pay commission
+        await referrerRef.update({
+            totalRefers: firebase.firestore.FieldValue.increment(1),
+            balance: firebase.firestore.FieldValue.increment(commissionAmount),
+            referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+        }).catch(error => console.error("Failed to pay initial commission and credit referral:", error));
+        
+        // Mark this user's referral as credited so it doesn't happen again
+        const currentUserRef = db.collection('users').doc(localUserId);
+        await currentUserRef.update({ isReferralCredited: true });
+        userState.isReferralCredited = true; // Update local state as well
+    } else {
+        // Subsequent earnings: just pay the commission
+        console.log(`Subsequent earning. Paying commission of ${commissionAmount} PEPE.`);
+        await referrerRef.update({
+            balance: firebase.firestore.FieldValue.increment(commissionAmount),
+            referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+        }).catch(error => console.error("Failed to pay subsequent commission:", error));
+    }
+}
+
 function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => { handleJoinClick(taskId, url); }); } if (verifyBtn) { verifyBtn.addEventListener('click', () => { handleVerifyClick(taskId, reward); }); } }); }
 function handleJoinClick(taskId, url) { const taskCard = document.getElementById(`task-${taskId}`); if (!taskCard) return; const joinButton = taskCard.querySelector('.join-btn'); const verifyButton = taskCard.querySelector('.verify-btn'); window.open(url, '_blank'); alert("After joining, return to the app and press 'Verify' to claim your reward."); if (verifyButton) verifyButton.disabled = false; if (joinButton) joinButton.disabled = true; }
 async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks.includes(taskId)) { alert("You have already completed this task."); return; } const taskCard = document.getElementById(`task-${taskId}`); const verifyButton = taskCard.querySelector('.verify-btn'); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { const userRef = db.collection('users').doc(localUserId); await userRef.update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); userState.balance += reward; userState.totalEarned += reward; userState.joinedBonusTasks.push(taskId); await payReferralCommission(reward); alert(`Verification successful! You've earned ${reward} PEPE.`); updateUI(); } catch (error) { console.error("Error rewarding user for channel join:", error); alert("An error occurred. Please try again."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
@@ -141,7 +150,7 @@ window.submitWithdrawal = async function() { const amount = parseInt(document.ge
 
 // --- [UTILITY FUNCTIONS] ---
 window.showTab = function(tabName, element) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tabName).classList.add('active'); document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); element.classList.add('active'); }
-window.openReferModal = function() { if (!TELEGRAM_BOT_USERNAME || TELEGRAM_BOT_USERNAME === "YourActualBotUsername") { alert("Error: The bot username has not been set in the script.js file."); return; } const referralLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${localUserId}`; document.getElementById('referral-link').value = referralLink; document.getElementById('refer-modal').style.display = 'flex'; }
+window.openReferModal = function() { if (!TELEGRAM_BOT_USERNAME || TELEGRAM_BOT_USERNAME === "YourActualBotUsername") { alert("Error: Please set your bot username in the script.js file first."); return; } const referralLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${localUserId}`; document.getElementById('referral-link').value = referralLink; document.getElementById('refer-modal').style.display = 'flex'; }
 window.closeReferModal = function() { document.getElementById('refer-modal').style.display = 'none'; }
 window.copyReferralLink = function(button) { const linkInput = document.getElementById('referral-link'); navigator.clipboard.writeText(linkInput.value).then(() => { const originalIcon = button.innerHTML; button.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => { button.innerHTML = originalIcon; }, 1500); }).catch(err => console.error('Failed to copy text: ', err)); }
 window.onclick = function(event) { if (event.target == document.getElementById('refer-modal')) { closeReferModal(); } }
