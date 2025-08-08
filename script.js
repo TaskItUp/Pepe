@@ -26,13 +26,14 @@ const WITHDRAWAL_MINIMUMS = {
 };
 
 // --- [INITIALIZE APP] ---
-function initializeApp(tgUser, forcedReferrerId = null) {
+function initializeApp(tgUser, fallbackReferrerId = null) {
   telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
   const userRef = db.collection('users').doc(telegramUserId);
 
   userRef.onSnapshot(async (doc) => {
     if (!doc.exists) {
-      const referrerId = tgUser?.start_param || forcedReferrerId;
+      const startParam = Telegram?.WebApp?.initDataUnsafe?.start_param;
+      const referrerId = startParam || fallbackReferrerId;
 
       const newUserState = {
         username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "User",
@@ -147,6 +148,7 @@ async function payReferralCommission(earnedAmount) {
   }
 }
 
+// --- [TASKS] ---
 function setupTaskButtonListeners() {
   document.querySelectorAll('.task-card').forEach(card => {
     const joinBtn = card.querySelector('.join-btn');
@@ -211,7 +213,6 @@ async function handleVerifyClick(taskId, reward) {
   }
 }
 
-// --- [AD TASK LOGIC] ---
 window.completeAdTask = async function () {
   if (!userState || (userState.tasksCompletedToday || 0) >= DAILY_TASK_LIMIT) {
     alert("You’ve completed all ad tasks for today!");
@@ -244,6 +245,7 @@ window.completeAdTask = async function () {
   }
 };
 
+// --- [WITHDRAWALS] ---
 window.submitWithdrawal = async function () {
   const amount = parseInt(document.getElementById('withdraw-amount').value);
   const method = document.getElementById('withdraw-method').value;
@@ -363,7 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (window.Telegram && window.Telegram.WebApp) {
     Telegram.WebApp.ready();
-    initializeApp(window.Telegram.WebApp.initDataUnsafe.user, storedRef);
+    initializeApp(Telegram.WebApp.initDataUnsafe.user, storedRef);
   } else {
     initializeApp(null, storedRef);
   }
