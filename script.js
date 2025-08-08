@@ -18,6 +18,7 @@ const db = firebase.firestore();
 // --- [GLOBAL STATE & CONSTANTS] ---
 let userState = {};
 let localUserId = null;
+let isInitialized = false; // Prevents multiple listener setups
 const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 
 const DAILY_TASK_LIMIT = 40;
@@ -29,51 +30,67 @@ const WITHDRAWAL_MINIMUMS = {
 
 // --- [CORE APP LOGIC] ---
 
-async function initializeApp() {
+function initializeApp() {
     localUserId = getLocalUserId();
     const userRef = db.collection('users').doc(localUserId);
-    const doc = await userRef.get();
 
-    if (!doc.exists) {
-        console.log('New user detected. Creating default account...');
-        let referrerId = null;
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
-            referrerId = window.Telegram.WebApp.initDataUnsafe.start_param || null;
-        }
-        if (!referrerId) { const params = new URLSearchParams(window.location.search); referrerId = params.get('ref') || null; }
+    // NEW: Use onSnapshot for REAL-TIME updates to the user's own data
+    userRef.onSnapshot(async (doc) => {
+        if (!doc.exists) {
+            console.log('New user detected. Creating default account...');
+            let referrerId = null;
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
+                referrerId = window.Telegram.WebApp.initDataUnsafe.start_param || null;
+            }
+            if (!referrerId) { const params = new URLSearchParams(window.location.search); referrerId = params.get('ref') || null; }
 
-        const newUserState = {
-            username: "User", telegramUsername: `@user_${localUserId.substring(0,6)}`, profilePicUrl: generatePlaceholderAvatar(localUserId),
-            balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
-            referredBy: referrerId,
-            isReferralCredited: false, // This is key for the new logic
-            referralEarnings: 0
-        };
-        await userRef.set(newUserState);
-        userState = newUserState;
-    } else {
-        console.log('Returning user. Loading data from Firebase...');
-        userState = doc.data();
-        if (userState.lastTaskTimestamp) {
-            const now = new Date();
-            const lastTaskDate = userState.lastTaskTimestamp.toDate();
-            if (now.getUTCDate() > lastTaskDate.getUTCDate() || now.getUTCMonth() > lastTaskDate.getUTCMonth()) {
-                userState.tasksCompletedToday = 0;
-                await userRef.update({ tasksCompletedToday: 0 });
+            const newUserState = {
+                username: "User", telegramUsername: `@user_${localUserId.substring(0,6)}`, profilePicUrl: generatePlaceholderAvatar(localUserId),
+                balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null, totalEarned: 0, totalAdsViewed: 0, totalRefers: 0, joinedBonusTasks: [],
+                referredBy: referrerId,
+                isReferralCredited: false,
+                referralEarnings: 0
+            };
+            await userRef.set(newUserState);
+            userState = newUserState;
+        } else {
+            console.log('User data updated in real-time.');
+            userState = doc.data();
+
+            // Perform the 24-hour task reset check if needed
+            if (userState.lastTaskTimestamp) {
+                const now = new Date();
+                const lastTaskDate = userState.lastTaskTimestamp.toDate();
+                if (now.getUTCDate() > lastTaskDate.getUTCDate() || now.getUTCMonth() > lastTaskDate.getUTCMonth()) {
+                    if (userState.tasksCompletedToday > 0) {
+                        await userRef.update({ tasksCompletedToday: 0 });
+                        userState.tasksCompletedToday = 0; // Update local state too
+                    }
+                }
             }
         }
-    }
-    setupTaskButtonListeners();
-    listenForWithdrawalHistory();
-    updateUI();
+        
+        // This ensures listeners are only set up once
+        if (!isInitialized) {
+            setupTaskButtonListeners();
+            listenForWithdrawalHistory();
+            isInitialized = true;
+        }
+
+        // Always update the UI with the latest data from the snapshot
+        updateUI();
+
+    }, (error) => {
+        console.error("Error listening to user document:", error);
+    });
 }
 
 function getLocalUserId() { let storedId = localStorage.getItem('localAppUserId'); if (storedId) return storedId; const newId = 'user_' + Date.now().toString(36) + Math.random().toString(36).substr(2); localStorage.setItem('localAppUserId', newId); return newId; }
 function generatePlaceholderAvatar(userId) { return `https://i.pravatar.cc/150?u=${userId}`; }
 
 function updateUI() {
-    const balanceString = Math.floor(userState.balance).toLocaleString();
-    const totalEarnedString = Math.floor(userState.totalEarned).toLocaleString();
+    const balanceString = Math.floor(userState.balance || 0).toLocaleString();
+    const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
     const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
     const totalRefersString = (userState.totalRefers || 0).toLocaleString();
 
@@ -109,40 +126,38 @@ function listenForWithdrawalHistory() { const historyList = document.getElementB
 
 // --- FIXED: ROBUST REFERRAL COMMISSION LOGIC ---
 async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy) return;
-
+    if (!userState.referredBy || userState.isReferralCredited) {
+        // If there's no referrer OR if the credit has already been given, just pay commission.
+        if (!userState.referredBy) return;
+        const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
+        if (commissionAmount <= 0) return;
+        const referrerRef = db.collection('users').doc(userState.referredBy);
+        return referrerRef.update({
+            balance: firebase.firestore.FieldValue.increment(commissionAmount),
+            referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+        }).catch(error => console.error("Failed to pay subsequent commission:", error));
+    }
+    
     const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
     if (commissionAmount <= 0) return;
 
     const referrerRef = db.collection('users').doc(userState.referredBy);
     const currentUserRef = db.collection('users').doc(localUserId);
 
+    // This transaction is now ONLY for the first-time credit.
     await db.runTransaction(async (transaction) => {
-        const currentUserDoc = await transaction.get(currentUserRef);
         const referrerDoc = await transaction.get(referrerRef);
-
-        if (!referrerDoc.exists || !currentUserDoc.exists) {
-            throw "Referrer or current user not found!";
-        }
-
-        const isCredited = currentUserDoc.data().isReferralCredited || false;
-
-        if (!isCredited) {
-            console.log("First earning: Crediting referrer count and commission.");
-            transaction.update(referrerRef, {
-                totalRefers: firebase.firestore.FieldValue.increment(1),
-                balance: firebase.firestore.FieldValue.increment(commissionAmount),
-                referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-            });
-            transaction.update(currentUserRef, { isReferralCredited: true });
-            userState.isReferralCredited = true; // Update local state
-        } else {
-            console.log("Subsequent earning: Paying commission only.");
-            transaction.update(referrerRef, {
-                balance: firebase.firestore.FieldValue.increment(commissionAmount),
-                referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-            });
-        }
+        if (!referrerDoc.exists) throw "Referrer not found!";
+        
+        console.log("First earning: Crediting referrer count and commission.");
+        transaction.update(referrerRef, {
+            totalRefers: firebase.firestore.FieldValue.increment(1),
+            balance: firebase.firestore.FieldValue.increment(commissionAmount),
+            referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+        });
+        transaction.update(currentUserRef, { isReferralCredited: true });
+    }).then(() => {
+        userState.isReferralCredited = true; // Update local state on success
     }).catch(error => {
         console.error("Referral commission transaction failed: ", error);
     });
