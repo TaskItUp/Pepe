@@ -33,37 +33,43 @@ function initializeApp(tgUser) {
     telegramUser = tgUser;
     telegramUserId = tgUser.id.toString();
     console.log(`Initializing for User ID: ${telegramUserId}`);
+    // Start listening to the user's document. This is our single source of truth.
     db.collection('users').doc(telegramUserId).onSnapshot(handleUserSnapshot, handleUserError);
 }
 
+/**
+ * Handles real-time updates from Firestore. This is the heart of the app's logic.
+ * The logic is now restructured to be sequential and prevent the race condition bug.
+ */
 async function handleUserSnapshot(doc) {
-    // If the app is already running, just update the state and UI.
-    if (isInitialized) {
-        if (doc.exists) {
-            userState = doc.data();
-            updateUI();
-        }
-        return;
-    }
-
-    // This block only runs ONCE on the very first data received.
     if (doc.exists) {
-        // CASE 1: The user is an EXISTING user.
-        console.log("Existing user detected. Setting up app.");
+        // CASE 1: The user document EXISTS.
+        // This will be true for existing users on their first load,
+        // and for NEW users on the SECOND snapshot after their document is created.
         userState = doc.data();
-        setupAppForUser(); // This shows the app and sets isInitialized to true.
+        if (!isInitialized) {
+            // If the app hasn't been set up yet, do it now.
+            setupAppForUser();
+        }
         updateUI();
     } else {
-        // CASE 2: The user is NEW.
-        console.log("New user detected. Starting account creation process.");
-        // We set isInitialized to true here to "lock" this path and prevent it from running again.
-        isInitialized = true; 
-        document.getElementById('loading-text').textContent = 'Finalizing account setup...';
-        await processNewUser();
-        // The onSnapshot listener will automatically get the new user data and call setupAppForUser.
+        // CASE 2: The user document DOES NOT EXIST.
+        // This will only be true for a new user on their very first load.
+        if (!isInitialized) {
+            // Prevent this block from ever running again.
+            isInitialized = true; 
+            console.log("New user detected. Starting account creation process.");
+            document.getElementById('loading-text').textContent = 'Finalizing account setup...';
+            await processNewUser();
+            // After this completes, the onSnapshot listener will fire again with doc.exists = true,
+            // which will then trigger Case 1 and correctly set up the app.
+        }
     }
 }
 
+/**
+ * Creates a new user and leaves a "note" (unclaimedReferral doc) for the referrer.
+ */
 async function processNewUser() {
     const referrerId = telegramUser?.start_param;
     const newUserRef = db.collection('users').doc(telegramUserId);
@@ -103,17 +109,27 @@ function handleUserError(error) {
     document.getElementById('loading-text').textContent = 'Failed to connect. Check Firestore Rules.';
 }
 
+/**
+ * Sets up listeners and shows the main app content. Called only once.
+ */
 function setupAppForUser() {
+    // This is the gatekeeper. Once this runs, the app is officially initialized.
+    isInitialized = true; 
     console.log("Setting up UI and all listeners.");
     db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(updateWithdrawalHistory);
+    // New listener to check for referrals to claim
     db.collection('unclaimedReferrals').where('referrerId', '==', telegramUserId).where('status', '==', 'unclaimed').onSnapshot(handleUnclaimedReferrals);
     setupTaskButtonListeners();
+    // This is the crucial step that hides the loader and shows the app.
     document.getElementById('loading-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
 }
 
+/**
+ * Handles showing the "Claim" button when new referrals are found.
+ */
 function handleUnclaimedReferrals(snapshot) {
-    unclaimedReferrals = snapshot.docs; // Store the raw referral documents
+    unclaimedReferrals = snapshot.docs; // Store the referral documents
     const claimSection = document.getElementById('claim-section');
     const claimText = document.getElementById('claim-text');
     const claimButton = document.getElementById('claim-button');
@@ -127,6 +143,9 @@ function handleUnclaimedReferrals(snapshot) {
     }
 }
 
+/**
+ * Called by the "Claim Now" button. Updates the user's own referral count.
+ */
 async function claimReferrals() {
     const claimButton = document.getElementById('claim-button');
     claimButton.disabled = true;
@@ -269,7 +288,7 @@ function updateWithdrawalHistory(querySnapshot) {
 
 // --- [UTILITY & OTHER FUNCTIONS] ---
 function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => handleJoinClick(taskId, url)); } if (verifyBtn) { verifyBtn.addEventListener('click', () => handleVerifyClick(taskId, reward)); } }); }
-async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks.includes(taskId)) { alert("Already completed."); return; } const verifyButton = document.querySelector(`#task-${taskId} .verify-btn`); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { await db.collection('users').doc(telegramUserId).update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); alert(`Success! You earned ${reward} PEPE.`); } catch (error) { console.error("Verify task failed:", error); alert("An error occurred."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
+async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks && userState.joinedBonusTasks.includes(taskId)) { alert("Already completed."); return; } const verifyButton = document.querySelector(`#task-${taskId} .verify-btn`); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { await db.collection('users').doc(telegramUserId).update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); alert(`Success! You earned ${reward} PEPE.`); } catch (error) { console.error("Verify task failed:", error); alert("An error occurred."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
 function handleJoinClick(taskId, url) { const taskCard = document.getElementById(`task-${taskId}`); if (!taskCard) return; taskCard.querySelector('.verify-btn').disabled = false; taskCard.querySelector('.join-btn').disabled = true; window.open(url, '_blank'); alert("Return and press 'Verify' to claim your reward."); }
 window.showTab = function(tabName, element) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tabName).classList.add('active'); document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); element.classList.add('active'); }
 window.closeReferModal = function() { document.getElementById('refer-modal').style.display = 'none'; }
@@ -284,4 +303,4 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         document.getElementById('loading-text').textContent = 'Please run this app inside Telegram.';
     }
-});```
+});
