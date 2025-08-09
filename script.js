@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const AD_REWARD = 250;
     const DAILY_AD_LIMIT = 40;
 
+    // This is the entry point. It ensures user data is loaded before anything else.
     if (!tg.initDataUnsafe || !tg.initDataUnsafe.user) {
         document.body.innerHTML = '<div style="text-align: center; padding: 50px; font-family: \'Poppins\', sans-serif;">Please open this app inside Telegram.</div>';
         return;
@@ -29,12 +30,14 @@ document.addEventListener('DOMContentLoaded', () => {
     currentUser = tg.initDataUnsafe.user;
     initializeUser(currentUser);
 
-    // --- MAIN USER INITIALIZATION ---
+    // --- MAIN USER INITIALIZATION AND PROFILE CREATION ---
     async function initializeUser(user) {
         const userRef = db.collection('users').doc(String(user.id));
         const userDoc = await userRef.get();
 
+        // If user is new, create their profile in the database
         if (!userDoc.exists) {
+            // Check if they were referred by someone
             const referrerId = tg.initDataUnsafe.start_param || null;
             await userRef.set({
                 id: user.id,
@@ -48,49 +51,57 @@ document.addEventListener('DOMContentLoaded', () => {
                 referrals: 0,
                 referralEarnings: 0,
                 withdrawalTotal: 0,
-                referrer: referrerId,
+                referrer: referrerId, // Store the ID of the person who referred them
                 createdAt: firebase.firestore.Timestamp.now()
             });
+
+            // If they were referred, update the referrer's count
             if (referrerId) {
                 const referrerRef = db.collection('users').doc(referrerId);
                 await referrerRef.update({ referrals: firebase.firestore.FieldValue.increment(1) }).catch(console.error);
             }
         }
 
+        // Listen for real-time updates to the user's data
         userRef.onSnapshot(doc => {
             if (doc.exists) {
-                updateUI(doc.data());
+                updateUI(doc.data()); // Update the entire app UI with fresh data
             }
         });
 
+        // Listen for real-time updates to the user's withdrawal history
         db.collection('withdrawals').where("userId", "==", user.id).orderBy("createdAt", "desc").limit(10)
             .onSnapshot(snapshot => {
                 updateWithdrawalHistory(snapshot);
             });
     }
     
-    // --- UI UPDATE FUNCTION ---
+    // --- DYNAMICALLY UPDATES THE ENTIRE APP'S UI ---
     function updateUI(userData) {
+        // Destructure data for easy access
         const { balance, adsWatchedToday, lastAdReset, completedTasks, totalAdsEver, referrals, referralEarnings, withdrawalTotal, firstName, username, id } = userData;
 
+        // --- Daily Ad Reset Logic ---
         let currentAdsWatched = adsWatchedToday;
         const now = new Date();
         const lastResetDate = lastAdReset.toDate();
         if ((now - lastResetDate) / 3600000 >= 24) {
             currentAdsWatched = 0;
+            // Reset in the database for the next session
             db.collection('users').doc(String(id)).update({ adsWatchedToday: 0, lastAdReset: firebase.firestore.Timestamp.now() });
         }
         
         const adsLeft = DAILY_AD_LIMIT - currentAdsWatched;
         const formattedBalance = Math.floor(balance).toLocaleString();
 
+        // --- Update All UI Elements ---
         // Balances
         document.getElementById('balance-home').textContent = formattedBalance;
         document.getElementById('withdraw-balance').textContent = formattedBalance;
         document.getElementById('profile-balance').textContent = formattedBalance;
 
         // Home Tab
-        document.getElementById('home-username').textContent = firstName;
+        document.getElementById('home-username').textContent = firstName; // Use real name
         document.getElementById('ads-watched-today').textContent = currentAdsWatched;
         document.getElementById('ads-left-today').textContent = adsLeft > 0 ? adsLeft : 0;
         
@@ -108,20 +119,21 @@ document.addEventListener('DOMContentLoaded', () => {
         watchAdBtn.innerHTML = watchAdBtn.disabled ? '<i class="fas fa-stop-circle"></i> Daily Limit Reached' : '<i class="fas fa-play-circle"></i> Watch Ad';
         
         // Profile Tab
-        document.getElementById('profile-name').textContent = firstName;
+        document.getElementById('profile-name').textContent = firstName; // Use real name
         document.getElementById('telegram-username').textContent = `@${username}`;
         document.getElementById('earned-so-far').textContent = Math.floor(balance + withdrawalTotal).toLocaleString();
         document.getElementById('total-ads-viewed').textContent = totalAdsEver;
         document.getElementById('total-refers').textContent = referrals;
 
-        // Referral
-        const referralLink = `https://t.me/TaskItUpBot?start=${id}`;
+        // Referral Links & Modal
+        const referralLink = `https://t.me/TaskItUpBot?start=${id}`; // The unique referral link
         document.getElementById('profile-referral-link').value = referralLink;
         document.getElementById('referral-link-modal').value = referralLink;
         document.getElementById('refer-count').textContent = referrals;
         document.getElementById('refer-earnings').textContent = Math.floor(referralEarnings).toLocaleString();
     }
     
+    // --- Updates Withdrawal History List ---
     function updateWithdrawalHistory(snapshot) {
         const historyList = document.getElementById('history-list');
         historyList.innerHTML = '';
@@ -144,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- EVENT LISTENERS ---
+    // --- ALL EVENT LISTENERS FOR BUTTONS AND NAVIGATION ---
     
     // Tab Navigation
     document.querySelector('.nav-bar').addEventListener('click', (e) => {
@@ -178,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tg.showPopup({ title: 'Success!', message: `+${channelTaskCard.dataset.reward} PEPE has been added.` });
     });
 
-    // Earn Ad Task
+    // Earn Ad Task with Referral Commission Logic
     document.getElementById('start-task-button').addEventListener('click', () => {
         const watchAdBtn = document.getElementById('start-task-button');
         watchAdBtn.disabled = true;
@@ -192,17 +204,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!doc.exists) throw "User not found!";
                     if (doc.data().adsWatchedToday >= DAILY_AD_LIMIT) throw "Daily ad limit reached.";
                     
+                    // Give reward to the current user
                     t.update(userRef, {
                         balance: firebase.firestore.FieldValue.increment(AD_REWARD),
                         adsWatchedToday: firebase.firestore.FieldValue.increment(1),
                         totalAdsEver: firebase.firestore.FieldValue.increment(1)
                     });
                     
+                    // If this user was referred, give commission to the referrer
                     if (doc.data().referrer) {
                         const referrerRef = db.collection('users').doc(doc.data().referrer);
+                        const commission = AD_REWARD * 0.10; // 10%
                         t.update(referrerRef, {
-                            balance: firebase.firestore.FieldValue.increment(AD_REWARD * 0.10),
-                            referralEarnings: firebase.firestore.FieldValue.increment(AD_REWARD * 0.10)
+                            balance: firebase.firestore.FieldValue.increment(commission),
+                            referralEarnings: firebase.firestore.FieldValue.increment(commission)
                         });
                     }
                 });
@@ -247,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Modal & Copy
+    // Modal & Copy Buttons
     const referModal = document.getElementById('refer-modal');
     document.getElementById('refer-fab').addEventListener('click', () => referModal.style.display = 'flex');
     document.getElementById('close-modal-btn').addEventListener('click', () => referModal.style.display = 'none');
