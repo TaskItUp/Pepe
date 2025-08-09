@@ -39,6 +39,7 @@ async function handleUserSnapshot(doc) {
     if (!doc.exists && !isInitialized) {
         isInitialized = true;
         document.getElementById('loading-text').textContent = 'Finalizing account setup...';
+        // This function handles the entire new user creation and referral process on the client.
         await processNewUser();
     } else if (doc.exists) {
         userState = doc.data();
@@ -53,6 +54,8 @@ async function handleUserSnapshot(doc) {
 async function processNewUser() {
     const voucherId = telegramUser?.start_param;
     const newUserRef = db.collection('users').doc(telegramUserId);
+    
+    // Define the default state for a new user
     const newUserState = {
         username: `${telegramUser.first_name || ''} ${telegramUser.last_name || ''}`.trim() || 'New User',
         telegramUsername: `@${telegramUser.username || telegramUserId}`,
@@ -77,7 +80,7 @@ async function processNewUser() {
             const voucherDoc = await transaction.get(voucherRef);
             if (!voucherDoc.exists) {
                 console.warn("Voucher is invalid or already claimed.");
-                transaction.set(newUserRef, newUserState);
+                transaction.set(newUserRef, newUserState); // Create user normally
                 return;
             }
 
@@ -89,6 +92,7 @@ async function processNewUser() {
             
             console.log(`Voucher is valid. Crediting referrer: ${referrerId}`);
             
+            // The atomic transaction: Create new user, update referrer, delete voucher.
             transaction.set(newUserRef, newUserState);
             transaction.update(referrerRef, { totalRefers: firebase.firestore.FieldValue.increment(1) });
             transaction.delete(voucherRef);
@@ -96,18 +100,20 @@ async function processNewUser() {
         console.log("Referral claimed successfully!");
     } catch (error) {
         console.error("Referral transaction failed:", error);
-        // If transaction fails, create user without referral so they aren't stuck.
+        // If the transaction fails for any reason, create the user without the referral
+        // so they are not stuck on the loading screen forever.
         await newUserRef.set(newUserState).catch(err => console.error("Fallback user creation failed:", err));
     }
 }
 
 function handleUserError(error) {
+    // This error will now be fixed by the new security rules.
     console.error("Firestore listener failed:", error);
     document.getElementById('loading-text').textContent = 'Failed to connect to the database.';
 }
 
 function setupAppForUser() {
-    console.log("Setting up UI and listeners.");
+    console.log("Setting up UI and listeners for the first time.");
     db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(updateWithdrawalHistory);
     setupTaskButtonListeners();
     document.getElementById('loading-container').style.display = 'none';
@@ -159,7 +165,7 @@ async function openReferModal() {
         const voucherRef = db.collection('referralLedger').doc();
         await voucherRef.set({
             referrerId: telegramUserId,
-            status: 'pending',
+            status: 'pending', // Status helps in debugging
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         linkInput.value = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${voucherRef.id}`;
@@ -239,14 +245,4 @@ function handleJoinClick(taskId, url) { const taskCard = document.getElementById
 window.showTab = function(tabName, element) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tabName).classList.add('active'); document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); element.classList.add('active'); }
 window.closeReferModal = function() { document.getElementById('refer-modal').style.display = 'none'; }
 window.copyReferralLink = function(button) { const linkInput = document.getElementById('referral-link'); navigator.clipboard.writeText(linkInput.value).then(() => { const originalIcon = button.innerHTML; button.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => { button.innerHTML = originalIcon; }, 1500); }); }
-window.onclick = function(event) { if (event.target.classList.contains('modal-overlay')) { event.target.style.display = 'none'; } }
-
-// --- [APP ENTRY POINT] ---
-document.addEventListener('DOMContentLoaded', () => {
-    if (window.Telegram && window.Telegram.WebApp) {
-        Telegram.WebApp.ready();
-        initializeApp(window.Telegram.WebApp.initDataUnsafe.user);
-    } else {
-        document.getElementById('loading-text').textContent = 'Please run this app inside Telegram.';
-    }
-});
+window.onclick = function(event) { if (event.target.classList.contain
