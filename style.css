@@ -15,7 +15,39 @@
 /* --- General & Reset Styles --- */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Poppins', sans-serif; background-color: var(--background-color); color: var(--text-primary); -webkit-tap-highlight-color: transparent; }
-#app-container { padding: 20px; padding-bottom: 100px; }
+
+/* --- Loading Container --- */
+#loading-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100%;
+}
+.spinner {
+    width: 56px;
+    height: 56px;
+    border: 8px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#loading-text {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* --- App Container --- */
+#app-container {
+    display: none; /* Hidden by default, shown by JS */
+    padding: 20px;
+    padding-bottom: 100px;
+}
+
 .tab-content { display: none; animation: fadeIn 0.5s ease-in-out; }
 .tab-content.active { display: block; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -94,10 +126,13 @@ body { font-family: 'Poppins', sans-serif; background-color: var(--background-co
 .modal-subtitle { text-align: center; color: var(--text-secondary); margin-bottom: 20px; }
 .referral-link-container { display: flex; margin-bottom: 20px; }
 .referral-link-container input { width: 100%; border: 1px solid var(--border-color); padding: 12px; border-radius: 10px 0 0 10px; background-color: #F8F9FA; color: var(--text-secondary); font-size: 0.9rem; }
+.referral-link-container input:disabled { background-color: #e9ecef; }
 .referral-link-container button { border: none; background: var(--primary-color); color: white; padding: 0 15px; border-radius: 0 10px 10px 0; cursor: pointer; }
+.referral-link-container button:disabled { background-color: #ccc; cursor: not-allowed; }
 .referral-stats { display: flex; justify-content: space-around; text-align: center; background-color: var(--background-color); padding: 15px; border-radius: 10px; margin-bottom: 20px; }
 .referral-stats p { font-size: 0.9rem; color: var(--text-secondary); }
 .referral-stats strong { display: block; color: var(--text-primary); font-size: 1.2rem; }
+.referral-requirements { text-align: center; }
 .referral-requirements h4 { margin-bottom: 10px; }
 .referral-requirements ul { list-style: none; padding-left: 0; }
 .referral-requirements li { color: var(--text-secondary); margin-bottom: 8px; }
