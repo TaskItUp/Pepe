@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>Crypto Task App</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Crypto Task App — Fixed Referral</title>
 
     <!-- Fonts & Icons -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -16,14 +16,14 @@
 </head>
 <body>
     <div id="app-container">
-        <!-- Home Tab -->
+        <!-- HOME -->
         <div id="home" class="tab-content active">
             <div class="header">
                 <div class="user-info">
                     <p class="welcome-text">Welcome,</p>
                     <h2 class="username" id="home-username">User</h2>
                 </div>
-                <img src="https://i.pravatar.cc/100" alt="User Profile" class="profile-pic" />
+                <img src="https://i.pravatar.cc/100" alt="User Profile" class="profile-pic" id="home-profile-pic" />
             </div>
 
             <div class="main-balance-card">
@@ -47,8 +47,8 @@
             <div class="bonus-section">
                 <h3 class="section-title">Bonus Points</h3>
 
-                <!-- example task card (task id channel_1) -->
-                <div class="task-card" id="task-channel_1" data-task-id="channel_1" data-url="https://t.me/taskupofficial" data-reward="300">
+                <!-- Task card: dataset-task-id must match script expectation -->
+                <div class="task-card" data-task-id="channel_1" data-url="https://t.me/taskupofficial" data-reward="300">
                     <div class="task-info">
                         <p class="task-title">Join Official Channel</p>
                         <p class="task-reward">+300 PEPE</p>
@@ -59,11 +59,10 @@
                     </div>
                     <div class="task-done"><i class="fas fa-check"></i> Done</div>
                 </div>
-
             </div>
         </div>
 
-        <!-- Earn Tab -->
+        <!-- EARN -->
         <div id="earn" class="tab-content">
             <h2 class="page-title">Earn Rewards</h2>
             <div class="earn-task-card">
@@ -81,7 +80,7 @@
             </div>
         </div>
 
-        <!-- Withdraw Tab -->
+        <!-- WITHDRAW -->
         <div id="withdraw" class="tab-content">
             <h2 class="page-title">Withdraw Funds</h2>
             <div class="available-balance-banner">
@@ -108,7 +107,6 @@
                 </button>
             </div>
 
-            <!-- Transaction History Section -->
             <div class="transaction-history">
                 <h3 class="section-title">Recent Withdrawals</h3>
                 <div id="history-list">
@@ -117,18 +115,17 @@
             </div>
         </div>
 
-        <!-- Profile Tab -->
+        <!-- PROFILE -->
         <div id="profile" class="tab-content">
             <div class="profile-header">
-                <img src="https://i.pravatar.cc/150" alt="User Profile" class="profile-pic-large" />
+                <img src="https://i.pravatar.cc/150" alt="User Profile" class="profile-pic-large" id="profile-pic-large" />
                 <h3 id="profile-name">User</h3>
                 <p id="telegram-username" class="text-muted">@username</p>
                 <p class="profile-balance">Balance: <span id="profile-balance">0</span> PEPE</p>
 
-                <!-- Live Referral Link in Profile -->
-                <div style="margin-top:12px; display:flex; gap:8px; align-items:center; justify-content:center; width:100%;">
-                    <input id="profile-referral-link" readonly style="width:75%; padding:10px; border-radius:10px; border:1px solid #e5e7eb; background:#f8f9fa; text-align:center;" value="" />
-                    <button onclick="copyReferralLink(this, 'profile-referral-link')" style="padding:10px 12px; border-radius:10px; border:none; background:#3F83F8; color:white;"><i class="fas fa-copy"></i></button>
+                <div class="ref-link-row">
+                    <input id="profile-referral-link" readonly />
+                    <button onclick="copyReferralLink(this, 'profile-referral-link')"><i class="fas fa-copy"></i></button>
                 </div>
             </div>
 
@@ -152,16 +149,15 @@
         <!-- Refer FAB + Modal -->
         <button class="refer-fab" onclick="openReferModal()"><i class="fas fa-gift"></i></button>
 
-        <div id="refer-modal" class="modal-overlay">
-            <div class="modal-content">
+        <div id="refer-modal" class="modal-overlay" role="dialog" aria-hidden="true">
+            <div class="modal-content" role="document">
                 <button class="close-btn" onclick="closeReferModal()">&times;</button>
                 <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
                 <p class="modal-subtitle">Earn a <span class="highlight">10% commission</span> from your friends' earnings!</p>
 
-                <!-- Dynamic referral link -->
                 <div class="referral-link-container">
                     <input type="text" id="referral-link" value="" readonly />
-                    <button onclick="copyReferralLink(this)"><i class="fas fa-copy"></i></button>
+                    <button onclick="copyReferralLink(this, 'referral-link')"><i class="fas fa-copy"></i></button>
                 </div>
 
                 <div class="referral-stats">
@@ -180,7 +176,7 @@
         </div>
     </div>
 
-    <!-- Navigation Bar -->
+    <!-- Bottom Nav -->
     <nav class="nav-bar">
         <a href="#" class="nav-item active" onclick="showTab('home', this)"><i class="fas fa-home"></i><span>Home</span></a>
         <a href="#" class="nav-item" onclick="showTab('earn', this)"><i class="fas fa-coins"></i><span>Earn</span></a>
@@ -188,12 +184,12 @@
         <a href="#" class="nav-item" onclick="showTab('profile', this)"><i class="fas fa-user"></i><span>Profile</span></a>
     </nav>
 
-    <!-- External SDKs & Firebase (compat) -->
+    <!-- Telegram WebApp + Firebase (compat) -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js" defer></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js" defer></script>
 
-    <!-- Your main script -->
+    <!-- Main script -->
     <script src="script.js" defer></script>
 </body>
 </html>
