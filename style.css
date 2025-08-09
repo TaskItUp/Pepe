@@ -99,6 +99,12 @@ body { font-family: 'Poppins', sans-serif; background-color: var(--background-co
 .referral-stats { display: flex; justify-content: space-around; text-align: center; background-color: var(--background-color); padding: 15px; border-radius: 10px; margin-bottom: 20px; }
 .referral-stats p { font-size: 0.9rem; color: var(--text-secondary); }
 .referral-stats strong { display: block; color: var(--text-primary); font-size: 1.2rem; }
+.referral-requirements { margin-top: 20px; }
+.referral-requirements h4 { margin-bottom: 10px; font-size: 1rem; text-align: center;}
+.referral-requirements ul { list-style: none; padding-left: 0; }
+.referral-requirements li { color: var(--text-secondary); margin-bottom: 8px; font-size: 0.9rem;}
+.referral-requirements .fa-check-circle { color: var(--secondary-color); margin-right: 8px; }
+
 
 /* --- Bottom Navigation Bar --- */
 .nav-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 70px; background-color: var(--card-background); display: flex; justify-content: space-around; align-items: center; box-shadow: 0 -2px 10px rgba(0,0,0,0.08); border-top: 1px solid var(--border-color); z-index: 100; }
