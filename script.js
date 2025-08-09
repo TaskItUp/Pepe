@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- [DATABASE & APP INITIALIZATION] ---
+    // YOUR FIREBASE CONFIG (Copied from your provided script)
     const firebaseConfig = {
         apiKey: "AIzaSyB1TYSc2keBepN_cMV9oaoHFRdcJaAqG_g",
         authDomain: "taskup-9ba7b.firebaseapp.com",
@@ -10,12 +11,10 @@ document.addEventListener('DOMContentLoaded', () => {
         measurementId: "G-JNNLG1E49L"
     };
 
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-
     // --- [GLOBAL STATE & CONSTANTS] ---
     let userState = {};
     let telegramUserId = null;
+    let db;
     const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
     const DAILY_TASK_LIMIT = 40;
     const AD_REWARD = 250;
@@ -27,21 +26,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const loadingOverlay = document.getElementById('loading-overlay');
         const appContainer = document.getElementById('app-container');
 
-        if (!window.Telegram || !window.Telegram.WebApp || !window.Telegram.WebApp.initDataUnsafe.user) {
-            loadingOverlay.innerHTML = `<p class="error-page">Cannot authenticate user. Please open this app inside Telegram.</p>`;
-            return;
-        }
-
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
-
-        const tgUser = tg.initDataUnsafe.user;
-        telegramUserId = tgUser.id.toString();
-
-        const userRef = db.collection('users').doc(telegramUserId);
-
         try {
+            // Initialize Firebase first
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+
+            if (!window.Telegram || !window.Telegram.WebApp || !window.Telegram.WebApp.initDataUnsafe.user) {
+                loadingOverlay.innerHTML = `<p class="error-page">Cannot authenticate user. Please open this app inside Telegram.</p>`;
+                return;
+            }
+
+            const tg = window.Telegram.WebApp;
+            tg.ready();
+            tg.expand();
+
+            const tgUser = tg.initDataUnsafe.user;
+            telegramUserId = tgUser.id.toString();
+
+            const userRef = db.collection('users').doc(telegramUserId);
+
             // STEP 1: Perform a one-time, guaranteed check for the user.
             const doc = await userRef.get();
 
@@ -82,7 +85,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error("Critical Initialization Error:", error);
-            loadingOverlay.innerHTML = `<p class="error-page">Could not connect to the database. Please check your internet connection or try again later.</p>`;
+            loadingOverlay.innerHTML = `<p class="error-page">Could not connect to the database. Please verify your Firebase config and security rules.</p>`;
         }
     }
 
@@ -96,7 +99,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateUI() {
         if (!userState) return;
 
-        // Reset tasks if a new day has started
         if (userState.lastTaskTimestamp) {
             const lastTaskDate = userState.lastTaskTimestamp.toDate();
             const today = new Date();
@@ -152,10 +154,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (profileLinkInput) profileLinkInput.value = referralLink;
     }
 
-    // --- [EVENT HANDLERS & LOGIC] ---
-    // The rest of the functions are taken directly from the script you provided,
-    // as they correctly handle the UI actions.
-
     async function payReferralCommission(earnedAmount) {
         if (!userState.referredBy) return;
         const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
@@ -180,13 +178,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleVerifyClick(taskId, reward) {
-        if (!userState.joinedBonusTasks) userState.joinedBonusTasks = [];
-        if (userState.joinedBonusTasks.includes(taskId)) {
-            alert("You have already completed this task.");
-            return;
-        }
+        if (userState.joinedBonusTasks?.includes(taskId)) return alert("You have already completed this task.");
         const taskCard = document.getElementById(`task-${taskId}`);
-        const verifyButton = taskCard ? taskCard.querySelector('.verify-btn') : null;
+        const verifyButton = taskCard?.querySelector('.verify-btn');
         if (verifyButton) {
             verifyButton.disabled = true;
             verifyButton.textContent = "Verifying...";
@@ -201,7 +195,6 @@ document.addEventListener('DOMContentLoaded', () => {
             await payReferralCommission(reward);
             alert(`Verification successful! You've earned ${reward} PEPE.`);
         } catch (error) {
-            console.error("Error rewarding user for channel join:", error);
             alert("An error occurred. Please try again.");
             if (verifyButton) {
                 verifyButton.disabled = false;
@@ -211,18 +204,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleJoinClick(taskId, url) {
-        const taskCard = document.getElementById(`task-${taskId}`);
-        if (!taskCard) return;
-        const verifyButton = taskCard.querySelector('.verify-btn');
+        const verifyButton = document.querySelector(`#task-${taskId} .verify-btn`);
         window.open(url, '_blank');
         if (verifyButton) verifyButton.disabled = false;
     }
 
     window.completeAdTask = async function () {
-        if (!userState || (userState.tasksCompletedToday || 0) >= DAILY_TASK_LIMIT) {
-            alert("You have completed all ad tasks for today!");
-            return;
-        }
+        if (!userState || (userState.tasksCompletedToday || 0) >= DAILY_TASK_LIMIT) return alert("You have completed all ad tasks for today!");
         const taskButton = document.getElementById('start-task-button');
         try {
             taskButton.disabled = true;
@@ -243,7 +231,6 @@ document.addEventListener('DOMContentLoaded', () => {
             await payReferralCommission(AD_REWARD);
             alert(`Success! ${AD_REWARD} PEPE has been added to your balance.`);
         } catch (error) {
-            console.error("An error occurred during the ad task:", error);
             alert("Ad could not be shown or was closed early. Please try again.");
         }
     };
@@ -274,7 +261,6 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('withdraw-amount').value = '';
             document.getElementById('wallet-id').value = '';
         } catch (error) {
-            console.error("Withdrawal failed:", error);
             alert("There was an error submitting your request. Please try again.");
         }
     };
@@ -282,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderHistoryItem(withdrawalData) {
         const item = document.createElement('div');
         item.className = `history-item ${withdrawalData.status}`;
-        const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : new Date();
+        const date = withdrawalData.requestedAt?.toDate ? withdrawalData.requestedAt.toDate() : new Date();
         const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         item.innerHTML = `<div class="history-details"><div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div><div class="history-date">${formattedDate}</div></div><div class="history-status ${withdrawalData.status}">${withdrawalData.status}</div>`;
         return item;
@@ -292,14 +278,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const historyList = document.getElementById('history-list');
         db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10)
             .onSnapshot(querySnapshot => {
-                if (querySnapshot.empty) {
-                    historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>';
-                    return;
-                }
+                if (querySnapshot.empty) return historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>';
                 historyList.innerHTML = '';
-                querySnapshot.forEach(doc => {
-                    historyList.appendChild(renderHistoryItem(doc.data()));
-                });
+                querySnapshot.forEach(doc => historyList.appendChild(renderHistoryItem(doc.data())));
             });
     }
 
@@ -331,3 +312,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- [APP ENTRY POINT] ---
     main();
 });
+Step 4: CRITICAL - Fix Your Firebase Security Rules
+This is the most likely cause of the "could not connect" error. Your database is refusing to talk to your app. For testing, you must open them up.
+Go to the Firebase Console.
+Select your project: taskup-9ba7b.
+Go to Build -> Firestore Database.
+Click the Rules tab.
+Delete everything there and replace it with this:
+code
+JavaScript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // WARNING: DANGEROUSLY OPEN RULES FOR DEVELOPMENT/TESTING
+    // This allows ANYONE to read and write to your database.
+    // YOU MUST CHANGE THIS BEFORE LAUNCHING YOUR BOT.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
