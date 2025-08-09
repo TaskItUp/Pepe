@@ -39,13 +39,13 @@ function initializeApp(tgUser) {
 
 /**
  * Handles real-time updates from Firestore. This is the heart of the app's logic.
- * The logic is now restructured to be sequential and prevent the race condition bug.
+ * The logic is now sequential and prevents the "stuck on loading" bug.
  */
 async function handleUserSnapshot(doc) {
     if (doc.exists) {
         // CASE 1: The user document EXISTS.
-        // This will be true for existing users on their first load,
-        // and for NEW users on the SECOND snapshot after their document is created.
+        // This is true for existing users on first load, AND for new users
+        // on the second snapshot after their document has been created.
         userState = doc.data();
         if (!isInitialized) {
             // If the app hasn't been set up yet, do it now.
@@ -54,7 +54,7 @@ async function handleUserSnapshot(doc) {
         updateUI();
     } else {
         // CASE 2: The user document DOES NOT EXIST.
-        // This will only be true for a new user on their very first load.
+        // This is only true for a new user on their very first load.
         if (!isInitialized) {
             // Prevent this block from ever running again.
             isInitialized = true; 
@@ -129,10 +129,12 @@ function setupAppForUser() {
  * Handles showing the "Claim" button when new referrals are found.
  */
 function handleUnclaimedReferrals(snapshot) {
-    unclaimedReferrals = snapshot.docs; // Store the referral documents
+    unclaimedReferrals = snapshot.docs; // Store the raw referral documents
     const claimSection = document.getElementById('claim-section');
     const claimText = document.getElementById('claim-text');
     const claimButton = document.getElementById('claim-button');
+
+    if (!claimSection) return; // Exit if the modal isn't open
 
     if (unclaimedReferrals.length > 0) {
         claimText.textContent = `You have ${unclaimedReferrals.length} new referral(s)!`;
@@ -169,7 +171,7 @@ async function claimReferrals() {
         // Commit all the changes at once.
         await batch.commit();
 
-        alert(`Success! You have claimed ${numToClaim} referral(s).`);
+        alert(`Success! You have claimed ${numToClaim} referral(s). Your total will update shortly.`);
         claimButton.innerHTML = '<i class="fas fa-gift"></i> Claim Now';
     } catch (error) {
         console.error("Failed to claim referrals:", error);
