@@ -37,6 +37,18 @@ function getTelegramDisplayName(tgUser) {
     return "User";
 }
 
+// --- [HELPERS] ---
+function getFakeUserIdForTesting() {
+    let storedId = localStorage.getItem('localAppUserId');
+    if (storedId) return storedId;
+    const newId = 'test_user_' + Date.now().toString(36);
+    localStorage.setItem('localAppUserId', newId);
+    return newId;
+}
+function generatePlaceholderAvatar(userId) {
+    return `https://i.pravatar.cc/150?u=${userId}`;
+}
+
 // --- [APP INITIALIZATION] ---
 async function initializeApp(tgUser) {
     telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
@@ -44,7 +56,9 @@ async function initializeApp(tgUser) {
 
     const userRef = db.collection('users').doc(telegramUserId);
 
+    // Try to get user document first
     const userDoc = await userRef.get();
+
     if (!userDoc.exists) {
         console.log('New user detected.');
 
@@ -68,11 +82,14 @@ async function initializeApp(tgUser) {
             referralEarnings: 0
         };
 
-        if (referrerId) {
-            const referrerRef = db.collection('users').doc(referrerId);
-            try {
-                // Atomic transaction to create user & increment referrer's totalRefers
-                await db.runTransaction(async (transaction) => {
+        try {
+            // Use transaction to:
+            // 1) Create new user doc
+            // 2) If referred, increment referrer's totalRefers atomically
+            await db.runTransaction(async (transaction) => {
+                const referrerRef = referrerId ? db.collection('users').doc(referrerId) : null;
+
+                if (referrerRef) {
                     const refDoc = await transaction.get(referrerRef);
                     if (refDoc.exists) {
                         transaction.update(referrerRef, {
@@ -81,18 +98,19 @@ async function initializeApp(tgUser) {
                     } else {
                         console.log("Referrer doc not found, skipping increment.");
                     }
-                    transaction.set(userRef, newUserState);
-                });
-                console.log("Referral transaction completed.");
-            } catch (err) {
-                console.error("Referral transaction failed:", err);
-                // Fallback: create user doc without incrementing referrer
-                await userRef.set(newUserState);
-            }
-        } else {
-            // No referral, just create user doc
+                }
+                transaction.set(userRef, newUserState);
+            });
+
+            console.log("User creation & referral increment transaction completed.");
+        } catch (err) {
+            console.error("Transaction failed:", err);
+            // Fallback: just create user doc without referral increment
             await userRef.set(newUserState);
         }
+
+        userState = newUserState;
+
     } else {
         userState = userDoc.data();
     }
@@ -104,7 +122,7 @@ async function initializeApp(tgUser) {
     }
     updateUI();
 
-    // Listen for realtime updates to user document after initial load
+    // Setup realtime listener on user document
     userRef.onSnapshot((doc) => {
         if (doc.exists) {
             userState = doc.data();
@@ -113,18 +131,6 @@ async function initializeApp(tgUser) {
     }, (err) => {
         console.error("Error listening to user doc:", err);
     });
-}
-
-// --- [HELPERS] ---
-function getFakeUserIdForTesting() {
-    let storedId = localStorage.getItem('localAppUserId');
-    if (storedId) return storedId;
-    const newId = 'test_user_' + Date.now().toString(36);
-    localStorage.setItem('localAppUserId', newId);
-    return newId;
-}
-function generatePlaceholderAvatar(userId) {
-    return `https://i.pravatar.cc/150?u=${userId}`;
 }
 
 // --- [UI UPDATE] ---
