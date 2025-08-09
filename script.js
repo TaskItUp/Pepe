@@ -20,7 +20,11 @@ let isInitialized = false;
 const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
+const REFERRAL_COMMISSION_RATE = 0.10;
 const WITHDRAWAL_MINIMUMS = { binancepay: 10000 };
+let unsubscribeUser = null;
+let unsubscribeHistory = null;
+
 
 // --- [CORE APP LOGIC] ---
 
@@ -69,7 +73,7 @@ async function processNewUser() {
         profilePicUrl: `https://i.pravatar.cc/150?u=${telegramUserId}`,
         balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null,
         totalEarned: 0, totalAdsViewed: 0, totalRefers: 0,
-        joinedBonusTasks: [], referredBy: referrerId || null,
+        joinedBonusTasks: [], referredBy: referrerId || null, referralEarnings: 0,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     
@@ -121,11 +125,15 @@ function setupAppForUser() {
     
     console.log("Setting up UI and all listeners.");
     // Now that we know the user exists, start the real-time listeners.
-    db.collection('users').doc(telegramUserId).onSnapshot(doc => {
+    unsubscribeUser = db.collection('users').doc(telegramUserId).onSnapshot(doc => {
+        const oldTotalEarned = userState?.totalEarned || 0;
         userState = doc.data();
+        if (userState.totalEarned > oldTotalEarned) {
+            payReferralCommission(userState.totalEarned - oldTotalEarned);
+        }
         updateUI();
     });
-    db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(updateWithdrawalHistory);
+    unsubscribeHistory = db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(updateWithdrawalHistory);
     
     setupTaskButtonListeners();
     document.getElementById('loading-container').style.display = 'none';
@@ -133,10 +141,35 @@ function setupAppForUser() {
     updateUI(); // Initial UI render
 }
 
+/**
+ * Pays commission to the referrer if the current user was referred.
+ */
+function payReferralCommission(amountEarned) {
+    if (!userState?.referredBy || amountEarned <= 0) {
+        return; // Exit if user wasn't referred or earned nothing
+    }
+
+    const commissionAmount = Math.floor(amountEarned * REFERRAL_COMMISSION_RATE);
+    if (commissionAmount <= 0) return;
+
+    const referrerRef = db.collection('users').doc(userState.referredBy);
+    
+    // Atomically update the referrer's balance and earnings
+    referrerRef.update({
+        balance: firebase.firestore.FieldValue.increment(commissionAmount),
+        referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
+    }).then(() => {
+        console.log(`Successfully paid ${commissionAmount} commission to ${userState.referredBy}`);
+    }).catch(error => {
+        console.error("Failed to pay commission:", error);
+    });
+}
+
+
 function updateUI() {
     if (!userState) return;
 
-    const { balance = 0, tasksCompletedToday = 0, totalEarned = 0, totalAdsViewed = 0, totalRefers = 0, profilePicUrl, username, telegramUsername, joinedBonusTasks = [] } = userState;
+    const { balance = 0, tasksCompletedToday = 0, totalEarned = 0, totalAdsViewed = 0, totalRefers = 0, referralEarnings = 0, profilePicUrl, username, telegramUsername, joinedBonusTasks = [] } = userState;
     const format = (n) => Math.floor(n).toLocaleString();
 
     document.querySelectorAll('.profile-pic, .profile-pic-large').forEach(img => { if (profilePicUrl) img.src = profilePicUrl; });
@@ -158,7 +191,9 @@ function updateUI() {
     document.getElementById('earned-so-far').textContent = format(totalEarned);
     document.getElementById('total-ads-viewed').textContent = format(totalAdsViewed);
     document.getElementById('total-refers').textContent = format(totalRefers);
+    document.getElementById('referral-earnings').textContent = format(referralEarnings);
     document.getElementById('refer-count').textContent = format(totalRefers);
+    document.getElementById('modal-refer-earnings').textContent = format(referralEarnings);
 
     document.querySelectorAll('.task-card').forEach(card => card.classList.remove('completed'));
     (joinedBonusTasks || []).forEach(taskId => {
@@ -256,4 +291,4 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         document.getElementById('loading-text').textContent = 'Please run this app inside Telegram.';
     }
-});
+});```
