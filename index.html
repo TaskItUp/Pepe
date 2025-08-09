@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -12,14 +13,14 @@
 </head>
 <body>
 
-    <!-- Loading Container - Shown on startup -->
+    <!-- Loading Container - Shown on startup, handles account creation -->
     <div id="loading-container">
         <div class="spinner"></div>
         <p id="loading-text">Loading App...</p>
     </div>
 
-    <!-- Main App Container - Hidden until ready -->
-    <div id="app-container">
+    <!-- Main App Container - Hidden until all data is loaded and ready -->
+    <div id="app-container" style="display: none;">
         <!-- Home Tab -->
         <div id="home" class="tab-content active">
             <div class="header">
@@ -135,6 +136,10 @@
                     <p><i class="fas fa-users icon-left"></i> Total Referrals</p>
                     <p class="stat-value" id="total-refers">0</p>
                 </div>
+                <div class="stat-item">
+                    <p><i class="fas fa-percent icon-left"></i> Referral Earnings</p>
+                    <p class="stat-value"><span id="refer-earnings">0</span> PEPE</p>
+                </div>
             </div>
         </div>
         
@@ -143,15 +148,15 @@
         <div id="refer-modal" class="modal-overlay">
             <div class="modal-content">
                 <button class="close-btn" onclick="closeReferModal()">&times;</button>
-                <h2 class="modal-title">Refer Friends!</h2>
-                <p class="modal-subtitle">Share this unique link with your friends. Your referral count will update instantly when they join.</p>
+                <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
+                <p class="modal-subtitle">Share this unique link. You'll get instant credit and earn 10% of their task earnings forever!</p>
                 <div class="referral-link-container">
                     <input type="text" id="referral-link" value="Generating..." readonly>
                     <button onclick="copyReferralLink(this)" disabled><i class="fas fa-copy"></i></button>
                 </div>
                 <div class="referral-stats">
                     <p><strong><span id="refer-count">0</span></strong> Referrals</p>
-                    <p><em>(10% commission feature is disabled)</em></p>
+                    <p><strong><span id="modal-refer-earnings">0</span> PEPE</strong> Earned</p>
                 </div>
             </div>
         </div>
@@ -169,6 +174,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
