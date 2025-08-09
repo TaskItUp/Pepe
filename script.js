@@ -30,7 +30,8 @@ const WITHDRAWAL_MINIMUMS = {
 // --- [CORE APP LOGIC] ---
 
 async function initializeApp(tgUser) {
-    telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
+    // Get Telegram user ID or create test ID
+    telegramUserId = tgUser ? tgUser.id.toString() : 'test_user_' + Date.now().toString(36);
     
     console.log(`Initializing app for User ID: ${telegramUserId}`);
     const userRef = db.collection('users').doc(telegramUserId);
@@ -38,15 +39,17 @@ async function initializeApp(tgUser) {
     userRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
             // New user registration with referral tracking
-            console.log('New user detected. Full Telegram data:', window.Telegram.WebApp.initDataUnsafe);
+            console.log('New user detected. Telegram data:', tgUser);
             
             // Get referrer ID from Telegram start_param
-            const referrerId = tgUser?.start_param || null;
+            const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param;
+            const referrerId = startParam || null;
             console.log(`Referrer ID from start_param: '${referrerId}'`);
 
             const newUserState = {
-                username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "User",
+                username: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() || `User${Date.now().toString().slice(-4)}` : "TestUser",
                 telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : `@test_user`,
+                telegramId: telegramUserId,
                 profilePicUrl: generatePlaceholderAvatar(telegramUserId),
                 balance: 0,
                 tasksCompletedToday: 0,
@@ -74,7 +77,8 @@ async function initializeApp(tgUser) {
                         if (referrerDoc.exists) {
                             // Update referrer's stats
                             transaction.update(referrerRef, {
-                                totalRefers: firebase.firestore.FieldValue.increment(1)
+                                totalRefers: firebase.firestore.FieldValue.increment(1),
+                                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                             });
                             console.log(`Referrer ${referrerId} stats updated`);
                         } else {
@@ -107,78 +111,88 @@ async function initializeApp(tgUser) {
             isInitialized = true;
         }
         updateUI();
-    }, (error) => console.error("Error listening to user document:", error));
+    }, (error) => {
+        console.error("Error listening to user document:", error);
+        alert("Error loading user data. Please refresh the page.");
+    });
 }
 
 // Helper functions
-function getFakeUserIdForTesting() { 
-    let storedId = localStorage.getItem('localAppUserId'); 
-    if (storedId) return storedId; 
-    const newId = 'test_user_' + Date.now().toString(36); 
-    localStorage.setItem('localAppUserId', newId); 
-    return newId; 
-}
-
 function generatePlaceholderAvatar(userId) { 
     return `https://i.pravatar.cc/150?u=${userId}`; 
 }
 
 function updateUI() {
-    if(!userState) return;
-    const balanceString = Math.floor(userState.balance || 0).toLocaleString();
-    const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
-    const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
-    const totalRefersString = (userState.totalRefers || 0).toLocaleString();
+    if (!userState) {
+        console.warn("User state not loaded yet");
+        return;
+    }
 
-    // Update profile images
-    document.querySelectorAll('.profile-pic, .profile-pic-large').forEach(img => { 
-        if (userState.profilePicUrl) img.src = userState.profilePicUrl; 
-    });
+    try {
+        // Update profile images
+        document.querySelectorAll('.profile-pic, .profile-pic-large').forEach(img => { 
+            img.src = userState.profilePicUrl || 'https://i.pravatar.cc/150'; 
+        });
 
-    // Update balances
-    document.getElementById('balance-home').textContent = balanceString;
-    document.getElementById('withdraw-balance').textContent = balanceString;
-    document.getElementById('profile-balance').textContent = balanceString;
+        // Format numbers
+        const balanceString = Math.floor(userState.balance || 0).toLocaleString();
+        const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
+        const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
+        const totalRefersString = (userState.totalRefers || 0).toLocaleString();
 
-    // Update user info
-    document.getElementById('home-username').textContent = userState.username;
-    document.getElementById('profile-name').textContent = userState.username;
-    document.getElementById('telegram-username').textContent = userState.telegramUsername;
+        // Update balances
+        document.getElementById('balance-home').textContent = balanceString;
+        document.getElementById('withdraw-balance').textContent = balanceString;
+        document.getElementById('profile-balance').textContent = balanceString;
 
-    // Update task stats
-    document.getElementById('ads-watched-today').textContent = userState.tasksCompletedToday || 0;
-    document.getElementById('ads-left-today').textContent = DAILY_TASK_LIMIT - (userState.tasksCompletedToday || 0);
-    
-    const tasksCompleted = userState.tasksCompletedToday || 0;
-    document.getElementById('tasks-completed').textContent = `${tasksCompleted} / ${DAILY_TASK_LIMIT}`;
-    
-    // Update progress bar
-    const progressPercentage = (tasksCompleted / DAILY_TASK_LIMIT) * 100;
-    document.getElementById('task-progress-bar').style.width = `${progressPercentage}%`;
-    
-    // Update task button state
-    const taskButton = document.getElementById('start-task-button');
-    taskButton.disabled = tasksCompleted >= DAILY_TASK_LIMIT;
-    taskButton.innerHTML = tasksCompleted >= DAILY_TASK_LIMIT ? 
-        '<i class="fas fa-check-circle"></i> All tasks done' : 
-        '<i class="fas fa-play-circle"></i> Watch Ad';
+        // Update user info
+        document.getElementById('home-username').textContent = userState.username || "User";
+        document.getElementById('profile-name').textContent = userState.username || "User";
+        document.getElementById('telegram-username').textContent = userState.telegramUsername || "@username";
 
-    // Update stats
-    document.getElementById('earned-so-far').textContent = totalEarnedString;
-    document.getElementById('total-ads-viewed').textContent = userState.totalAdsViewed || 0;
-    document.getElementById('total-refers').textContent = totalRefersString;
-    document.getElementById('refer-earnings').textContent = referralEarningsString;
-    document.getElementById('refer-count').textContent = totalRefersString;
-    document.getElementById('referral-earnings').textContent = referralEarningsString + ' PEPE';
+        // Update task stats
+        const tasksCompleted = userState.tasksCompletedToday || 0;
+        document.getElementById('ads-watched-today').textContent = tasksCompleted;
+        document.getElementById('ads-left-today').textContent = DAILY_TASK_LIMIT - tasksCompleted;
+        document.getElementById('tasks-completed').textContent = `${tasksCompleted} / ${DAILY_TASK_LIMIT}`;
+        
+        // Update progress bar
+        const progressPercentage = (tasksCompleted / DAILY_TASK_LIMIT) * 100;
+        document.getElementById('task-progress-bar').style.width = `${progressPercentage}%`;
+        
+        // Update task button state
+        const taskButton = document.getElementById('start-task-button');
+        if (taskButton) {
+            taskButton.disabled = tasksCompleted >= DAILY_TASK_LIMIT;
+            taskButton.innerHTML = tasksCompleted >= DAILY_TASK_LIMIT ? 
+                '<i class="fas fa-check-circle"></i> All tasks done' : 
+                '<i class="fas fa-play-circle"></i> Watch Ad';
+        }
 
-    // Update completed tasks
-    const joinedTasks = userState.joinedBonusTasks || [];
-    joinedTasks.forEach(taskId => {
-        const taskCard = document.getElementById(`task-${taskId}`);
-        if (taskCard) taskCard.classList.add('completed');
-    });
+        // Update stats
+        document.getElementById('earned-so-far').textContent = totalEarnedString;
+        document.getElementById('total-ads-viewed').textContent = userState.totalAdsViewed || 0;
+        document.getElementById('total-refers').textContent = totalRefersString;
+        document.getElementById('refer-earnings').textContent = referralEarningsString;
+        document.getElementById('refer-count').textContent = totalRefersString;
+        document.getElementById('referral-earnings').textContent = referralEarningsString + ' PEPE';
+
+        // Update completed tasks
+        const joinedTasks = userState.joinedBonusTasks || [];
+        document.querySelectorAll('.task-card').forEach(card => {
+            const taskId = card.dataset.taskId;
+            if (joinedTasks.includes(taskId)) {
+                card.classList.add('completed');
+            } else {
+                card.classList.remove('completed');
+            }
+        });
+    } catch (error) {
+        console.error("Error updating UI:", error);
+    }
 }
 
+// Referral commission system
 async function payReferralCommission(earnedAmount) {
     if (!userState.referredBy || earnedAmount <= 0) return;
     
@@ -191,7 +205,8 @@ async function payReferralCommission(earnedAmount) {
         await referrerRef.update({
             balance: firebase.firestore.FieldValue.increment(commissionAmount),
             referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount),
-            totalEarned: firebase.firestore.FieldValue.increment(commissionAmount)
+            totalEarned: firebase.firestore.FieldValue.increment(commissionAmount),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         console.log(`Paid ${commissionAmount} PEPE referral commission to ${userState.referredBy}`);
     } catch (error) {
@@ -201,6 +216,8 @@ async function payReferralCommission(earnedAmount) {
 
 // Task handling functions
 function setupTaskButtonListeners() {
+    console.log("Setting up task button listeners");
+    
     document.querySelectorAll('.task-card').forEach(card => {
         const joinBtn = card.querySelector('.join-btn');
         const verifyBtn = card.querySelector('.verify-btn');
@@ -209,27 +226,58 @@ function setupTaskButtonListeners() {
         const reward = parseInt(card.dataset.reward);
 
         if (joinBtn) {
-            joinBtn.addEventListener('click', () => {
+            joinBtn.addEventListener('click', (e) => {
+                e.preventDefault();
                 handleJoinClick(taskId, url);
             });
         }
 
         if (verifyBtn) {
-            verifyBtn.addEventListener('click', () => {
+            verifyBtn.addEventListener('click', (e) => {
+                e.preventDefault();
                 handleVerifyClick(taskId, reward);
             });
         }
     });
+
+    // Setup other button listeners
+    const startTaskBtn = document.getElementById('start-task-button');
+    if (startTaskBtn) {
+        startTaskBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            completeAdTask();
+        });
+    }
+
+    const withdrawBtn = document.querySelector('.submit-withdrawal-btn');
+    if (withdrawBtn) {
+        withdrawBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            submitWithdrawal();
+        });
+    }
 }
 
 async function handleVerifyClick(taskId, reward) {
+    if (!userState) {
+        alert("User data not loaded yet. Please wait...");
+        return;
+    }
+
     if (userState.joinedBonusTasks && userState.joinedBonusTasks.includes(taskId)) {
         alert("You have already completed this task.");
         return;
     }
 
     const taskCard = document.getElementById(`task-${taskId}`);
+    if (!taskCard) {
+        alert("Task not found. Please refresh the page.");
+        return;
+    }
+
     const verifyButton = taskCard.querySelector('.verify-btn');
+    if (!verifyButton) return;
+
     verifyButton.disabled = true;
     verifyButton.textContent = "Verifying...";
 
@@ -238,7 +286,8 @@ async function handleVerifyClick(taskId, reward) {
         await userRef.update({
             balance: firebase.firestore.FieldValue.increment(reward),
             totalEarned: firebase.firestore.FieldValue.increment(reward),
-            joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId)
+            joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
         // Pay referral commission if applicable
@@ -268,20 +317,31 @@ function handleJoinClick(taskId, url) {
 }
 
 // Ad task completion
-window.completeAdTask = async function() {
-    if (!userState || (userState.tasksCompletedToday || 0) >= DAILY_TASK_LIMIT) {
+async function completeAdTask() {
+    if (!userState) {
+        alert("User data not loaded yet. Please wait...");
+        return;
+    }
+
+    if ((userState.tasksCompletedToday || 0) >= DAILY_TASK_LIMIT) {
         alert("You have completed all ad tasks for today!");
         return;
     }
 
     const taskButton = document.getElementById('start-task-button');
+    if (!taskButton) return;
     
     try {
         taskButton.disabled = true;
         taskButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Ad...';
         
         // Show ad (replace with your actual ad SDK call)
-        await window.show_9685198();
+        if (typeof window.show_9685198 === 'function') {
+            await window.show_9685198();
+        } else {
+            console.log("Ad SDK not available - simulating ad view");
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
 
         const userRef = db.collection('users').doc(telegramUserId);
         await userRef.update({
@@ -289,7 +349,8 @@ window.completeAdTask = async function() {
             totalEarned: firebase.firestore.FieldValue.increment(AD_REWARD),
             tasksCompletedToday: firebase.firestore.FieldValue.increment(1),
             totalAdsViewed: firebase.firestore.FieldValue.increment(1),
-            lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp()
+            lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
         // Pay referral commission if applicable
@@ -305,19 +366,27 @@ window.completeAdTask = async function() {
 }
 
 // Withdrawal handling
-window.submitWithdrawal = async function() {
-    const amount = parseInt(document.getElementById('withdraw-amount').value);
+async function submitWithdrawal() {
+    if (!userState) {
+        alert("User data not loaded yet. Please wait...");
+        return;
+    }
+
+    const amountInput = document.getElementById('withdraw-amount');
+    const amount = parseInt(amountInput.value);
     const method = document.getElementById('withdraw-method').value;
     const walletId = document.getElementById('wallet-id').value.trim();
     const minAmount = WITHDRAWAL_MINIMUMS[method];
 
-    if (isNaN(amount) {
+    if (isNaN(amount) || amount <= 0) {
         alert('Please enter a valid amount.');
+        amountInput.focus();
         return;
     }
 
     if (!walletId) {
         alert('Please enter your Binance ID or Email.');
+        document.getElementById('wallet-id').focus();
         return;
     }
 
@@ -364,13 +433,14 @@ window.submitWithdrawal = async function() {
         // Update user balance
         const userRef = db.collection('users').doc(telegramUserId);
         await userRef.update({
-            balance: firebase.firestore.FieldValue.increment(-amount)
+            balance: firebase.firestore.FieldValue.increment(-amount),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
         alert(`Success! Your withdrawal request for ${amount.toLocaleString()} PEPE has been submitted.`);
         
         // Clear form
-        document.getElementById('withdraw-amount').value = '';
+        amountInput.value = '';
         document.getElementById('wallet-id').value = '';
     } catch (error) {
         console.error("Withdrawal failed:", error);
@@ -383,9 +453,9 @@ function renderHistoryItem(withdrawalData) {
     const item = document.createElement('div');
     item.className = `history-item ${withdrawalData.status}`;
     
-    const date = withdrawalData.requestedAt.toDate ? 
+    const date = withdrawalData.requestedAt?.toDate ? 
         withdrawalData.requestedAt.toDate() : 
-        new Date(withdrawalData.requestedAt);
+        new Date(withdrawalData.requestedAt || Date.now());
     
     const formattedDate = date.toLocaleDateString('en-US', { 
         month: 'short', 
@@ -407,6 +477,7 @@ function renderHistoryItem(withdrawalData) {
 
 function listenForWithdrawalHistory() {
     const historyList = document.getElementById('history-list');
+    if (!historyList) return;
     
     db.collection('withdrawals')
         .where('userId', '==', telegramUserId)
@@ -424,19 +495,22 @@ function listenForWithdrawalHistory() {
                 const itemElement = renderHistoryItem(withdrawal);
                 historyList.appendChild(itemElement);
             });
+        }, error => {
+            console.error("Error loading withdrawal history:", error);
+            historyList.innerHTML = '<p class="no-history">Error loading history. Please refresh.</p>';
         });
 }
 
 // UI Utility functions
-window.showTab = function(tabName, element) {
+function showTab(tabName, element) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.getElementById(tabName).classList.add('active');
+    document.getElementById(tabName)?.classList.add('active');
     
     document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-    element.classList.add('active');
+    element?.classList.add('active');
 }
 
-window.openReferModal = function() {
+function openReferModal() {
     if (!TELEGRAM_BOT_USERNAME) {
         alert("Error: Bot username not set.");
         return;
@@ -447,11 +521,11 @@ window.openReferModal = function() {
     document.getElementById('refer-modal').style.display = 'flex';
 }
 
-window.closeReferModal = function() {
+function closeReferModal() {
     document.getElementById('refer-modal').style.display = 'none';
 }
 
-window.copyReferralLink = function(button) {
+function copyReferralLink(button) {
     const linkInput = document.getElementById('referral-link');
     
     navigator.clipboard.writeText(linkInput.value).then(() => {
@@ -461,28 +535,62 @@ window.copyReferralLink = function(button) {
         setTimeout(() => {
             button.innerHTML = originalIcon;
         }, 1500);
-    }).catch(err => console.error('Failed to copy text: ', err));
+    }).catch(err => {
+        console.error('Failed to copy text: ', err);
+        alert("Failed to copy link. Please try again.");
+    });
 }
 
-window.onclick = function(event) {
+// Event delegation for dynamically added elements
+document.addEventListener('click', function(event) {
+    // Handle modal close when clicking outside
     if (event.target == document.getElementById('refer-modal')) {
         closeReferModal();
     }
-}
+    
+    // Handle tab switching
+    if (event.target.closest('.nav-item')) {
+        const navItem = event.target.closest('.nav-item');
+        const tabName = navItem.querySelector('i').className.replace('fas fa-', '');
+        showTab(tabName === 'home' ? 'home' : 
+                tabName === 'coins' ? 'earn' : 
+                tabName === 'wallet' ? 'withdraw' : 
+                tabName === 'user' ? 'profile' : 'home', 
+                navItem);
+    }
+});
 
 // --- [APP ENTRY POINT] ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Check if running inside Telegram
+    // Initialize Telegram Web App
     if (window.Telegram && window.Telegram.WebApp) {
-        Telegram.WebApp.ready();
-        
-        // Expand the app to full view
-        Telegram.WebApp.expand();
-        
-        // Initialize with Telegram user data
-        initializeApp(window.Telegram.WebApp.initDataUnsafe.user);
+        try {
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+            
+            // Initialize with Telegram user data
+            const tgUser = window.Telegram.WebApp.initDataUnsafe?.user;
+            if (tgUser) {
+                console.log("Telegram user data:", tgUser);
+                initializeApp(tgUser);
+            } else {
+                console.warn("No Telegram user data found");
+                initializeApp(null);
+            }
+        } catch (error) {
+            console.error("Error initializing Telegram WebApp:", error);
+            initializeApp(null);
+        }
     } else {
-        console.warn("Telegram script not found. Running in browser test mode.");
-        initializeApp(null); // Fallback for local testing
+        console.warn("Telegram WebApp not detected - running in test mode");
+        initializeApp(null);
     }
 });
+
+// Expose functions to global scope
+window.showTab = showTab;
+window.openReferModal = openReferModal;
+window.closeReferModal = closeReferModal;
+window.copyReferralLink = copyReferralLink;
+window.completeAdTask = completeAdTask;
+window.submitWithdrawal = submitWithdrawal;
