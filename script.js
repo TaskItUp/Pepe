@@ -1,6 +1,4 @@
-// --- [CONFIGURATION] ---
-// IMPORTANT: Replace this URL with your actual public backend address when you deploy!
-const BACKEND_URL = 'http://127.0.0.1:5000';
+
 
 // --- [GLOBAL STATE & CONSTANTS] ---
 let userState = {};
@@ -274,3 +272,4 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeApp(null); // Fallback for local testing
     }
 });
+
