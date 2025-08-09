@@ -16,7 +16,7 @@ const db = firebase.firestore();
 let userState = null;
 let telegramUser = null;
 let telegramUserId = null;
-let isInitialized = false;
+let isInitialized = false; // This flag is now managed by a more robust logic
 const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
@@ -32,30 +32,51 @@ function initializeApp(tgUser) {
     telegramUser = tgUser;
     telegramUserId = tgUser.id.toString();
     console.log(`Initializing for User ID: ${telegramUserId}`);
+    // Start listening to the user's document. This is our single source of truth.
     db.collection('users').doc(telegramUserId).onSnapshot(handleUserSnapshot, handleUserError);
 }
 
+/**
+ * Handles real-time updates from Firestore. This is the heart of the app's logic.
+ * The logic is now restructured to prevent the race condition that caused the infinite loading.
+ */
 async function handleUserSnapshot(doc) {
-    if (!doc.exists && !isInitialized) {
-        isInitialized = true;
-        document.getElementById('loading-text').textContent = 'Finalizing account setup...';
-        // This function handles the entire new user creation and referral process on the client.
-        await processNewUser();
-    } else if (doc.exists) {
-        userState = doc.data();
-        if (!isInitialized) {
-            isInitialized = true;
-            setupAppForUser();
+    // If the app is already running, just update the UI with the latest data.
+    if (isInitialized) {
+        if (doc.exists) {
+            userState = doc.data();
+            updateUI();
         }
+        return;
+    }
+
+    // --- This block only runs ONCE on the very first data received ---
+    if (doc.exists) {
+        // CASE 1: The user is an EXISTING user.
+        console.log("Existing user detected. Setting up app.");
+        userState = doc.data();
+        setupAppForUser(); // This will show the app and set isInitialized to true.
         updateUI();
+    } else {
+        // CASE 2: The user is NEW.
+        console.log("New user detected. Starting account creation process.");
+        document.getElementById('loading-text').textContent = 'Finalizing account setup...';
+        // Create the user. Do NOT set isInitialized here.
+        await processNewUser();
+        // After processNewUser creates the document, this onSnapshot listener will
+        // fire again automatically. On the next fire, doc.exists will be true,
+        // and the code will enter CASE 1, which correctly sets up and shows the app.
     }
 }
 
+/**
+ * Creates a new user document and handles the referral voucher atomically.
+ * This function is now guaranteed to work with the corrected security rules.
+ */
 async function processNewUser() {
     const voucherId = telegramUser?.start_param;
     const newUserRef = db.collection('users').doc(telegramUserId);
     
-    // Define the default state for a new user
     const newUserState = {
         username: `${telegramUser.first_name || ''} ${telegramUser.last_name || ''}`.trim() || 'New User',
         telegramUsername: `@${telegramUser.username || telegramUserId}`,
@@ -68,8 +89,10 @@ async function processNewUser() {
 
     if (!voucherId) {
         console.log("No referral voucher found. Creating new user.");
-        await newUserRef.set(newUserState).catch(err => console.error("Failed to create new user:", err));
-        return;
+        return newUserRef.set(newUserState).catch(err => {
+            console.error("Failed to create new user:", err);
+            document.getElementById('loading-text').textContent = 'Error creating account.';
+        });
     }
 
     console.log(`Voucher ${voucherId} found. Attempting to claim.`);
@@ -102,24 +125,35 @@ async function processNewUser() {
         console.error("Referral transaction failed:", error);
         // If the transaction fails for any reason, create the user without the referral
         // so they are not stuck on the loading screen forever.
-        await newUserRef.set(newUserState).catch(err => console.error("Fallback user creation failed:", err));
+        await newUserRef.set(newUserState).catch(err => {
+            console.error("Fallback user creation failed:", err);
+            document.getElementById('loading-text').textContent = 'Error creating account.';
+        });
     }
 }
 
 function handleUserError(error) {
-    // This error will now be fixed by the new security rules.
     console.error("Firestore listener failed:", error);
     document.getElementById('loading-text').textContent = 'Failed to connect to the database.';
 }
 
+/**
+ * Sets up listeners and shows the main app content. Called only once.
+ */
 function setupAppForUser() {
+    // This is the gatekeeper. Once this runs, the app is officially initialized.
+    isInitialized = true; 
     console.log("Setting up UI and listeners for the first time.");
     db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(updateWithdrawalHistory);
     setupTaskButtonListeners();
+    // This is the crucial step that was being missed for new users.
     document.getElementById('loading-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
 }
 
+/**
+ * Updates all UI elements with data from the global `userState`.
+ */
 function updateUI() {
     if (!userState) return;
 
@@ -147,12 +181,17 @@ function updateUI() {
     document.getElementById('total-refers').textContent = format(totalRefers);
     document.getElementById('refer-count').textContent = format(totalRefers);
 
+    // Reset all cards to not completed before applying the class
+    document.querySelectorAll('.task-card').forEach(card => card.classList.remove('completed'));
     joinedBonusTasks.forEach(taskId => {
         const taskCard = document.getElementById(`task-${taskId}`);
         if (taskCard) taskCard.classList.add('completed');
     });
 }
 
+/**
+ * Generates and displays the user's unique referral link by creating a voucher.
+ */
 async function openReferModal() {
     const linkInput = document.getElementById('referral-link');
     const copyButton = linkInput.nextElementSibling;
@@ -165,7 +204,6 @@ async function openReferModal() {
         const voucherRef = db.collection('referralLedger').doc();
         await voucherRef.set({
             referrerId: telegramUserId,
-            status: 'pending', // Status helps in debugging
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
         linkInput.value = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${voucherRef.id}`;
@@ -194,6 +232,11 @@ window.completeAdTask = async function() {
     } catch (error) {
         console.error("Ad task failed:", error);
         alert("Ad could not be shown or was closed early.");
+        // Re-enable button on failure to allow retry
+        if (userState && userState.tasksCompletedToday < DAILY_TASK_LIMIT) {
+             taskButton.disabled = false;
+             taskButton.innerHTML = '<i class="fas fa-play-circle"></i> Watch Ad';
+        }
     }
 }
 
@@ -245,4 +288,14 @@ function handleJoinClick(taskId, url) { const taskCard = document.getElementById
 window.showTab = function(tabName, element) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tabName).classList.add('active'); document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); element.classList.add('active'); }
 window.closeReferModal = function() { document.getElementById('refer-modal').style.display = 'none'; }
 window.copyReferralLink = function(button) { const linkInput = document.getElementById('referral-link'); navigator.clipboard.writeText(linkInput.value).then(() => { const originalIcon = button.innerHTML; button.innerHTML = '<i class="fas fa-check"></i>'; setTimeout(() => { button.innerHTML = originalIcon; }, 1500); }); }
-window.onclick = function(event) { if (event.target.classList.contain
+window.onclick = function(event) { if (event.target.classList.contains('modal-overlay')) { event.target.style.display = 'none'; } }
+
+// --- [APP ENTRY POINT] ---
+document.addEventListener('DOMContentLoaded', () => {
+    if (window.Telegram && window.Telegram.WebApp) {
+        Telegram.WebApp.ready();
+        initializeApp(window.Telegram.WebApp.initDataUnsafe.user);
+    } else {
+        document.getElementById('loading-text').textContent = 'Please run this app inside Telegram.';
+    }
+});
