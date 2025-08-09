@@ -1,129 +1,179 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Task It Up</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Crypto Task App</title>
+
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css" />
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div id="app">
+    <div id="app-container">
         <!-- Home Tab -->
         <div id="home" class="tab-content active">
-            <h1 id="welcome-message" class="main-heading">Welcome, User!</h1>
-            <div class="balance-box card">
-                <p>Your Balance</p>
-                <h2 id="balance">0 Pepe</h2>
+            <div class="header">
+                <div class="user-info">
+                    <p class="welcome-text">Welcome,</p>
+                    <h2 class="username" id="home-username">User</h2>
+                </div>
+                <img src="https://i.ibb.co/2tD3sS3/default-avatar.png" alt="User Profile" id="home-profile-pic" class="profile-pic" />
             </div>
-            <div class="card">
-                <h3>Join our Channel & Earn! 🚀</h3>
-                <p>Get 300 Pepe instantly for joining our official Telegram channel.</p>
-                <div class="bonus-buttons">
-                    <a href="https://t.me/taskupofficial" target="_blank" class="btn btn-secondary">Join Channel</a>
-                    <button id="verify-join-btn" class="btn btn-success">Verify</button>
+
+            <div class="main-balance-card">
+                <p>Total Balance</p>
+                <h1 class="balance-amount"><span id="balance-home">0</span> <span class="currency">PEPE</span></h1>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <i class="fas fa-eye icon"></i>
+                    <p>Ads Watched (Today)</p>
+                    <h3 id="ads-watched-today">0</h3>
+                </div>
+                <div class="stat-box">
+                    <i class="fas fa-hourglass-half icon"></i>
+                    <p>Ads Left Today</p>
+                    <h3 id="ads-left-today">40</h3>
+                </div>
+            </div>
+
+            <div class="bonus-section">
+                <h3 class="section-title">Bonus Points</h3>
+                <div class="task-card" id="task-channel-join" data-task-id="channel_1" data-url="https://t.me/taskupofficial" data-reward="300">
+                    <div class="task-info">
+                        <p class="task-title">Join Official Channel</p>
+                        <p class="task-reward">+300 PEPE</p>
+                    </div>
+                    <div class="task-buttons">
+                        <button class="join-btn"><i class="fab fa-telegram-plane"></i> Join</button>
+                        <button class="verify-btn" disabled>Verify</button>
+                    </div>
+                    <div class="task-done"><i class="fas fa-check"></i> Done</div>
                 </div>
             </div>
         </div>
 
         <!-- Earn Tab -->
         <div id="earn" class="tab-content">
-            <h1 class="main-heading">💰 Earn Rewards</h1>
-            <div class="card">
-                <h3>Today's Ad Task</h3>
-                <p>You can watch 40 ads per day. Earn 250 Pepe for each one!</p>
-                <div class="progress-bar-container">
-                    <div id="progress-bar" class="progress-bar"></div>
+            <h2 class="page-title">Earn Rewards</h2>
+            <div class="earn-task-card">
+                <h3 class="card-title">Today's Ad Tasks</h3>
+                <div class="task-progress-info">
+                    <p>Completed: <span id="tasks-completed">0</span> / 40</p>
                 </div>
-                <p id="ad-progress">0/40</p>
-                <button id="watch-ad-btn" class="btn btn-primary btn-full-width">Watch Ad 👀</button>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="task-progress-bar" style="width: 0%;"></div>
+                </div>
+                <p class="reward-info">Get <span class="reward-amount">250 PEPE</span> for each ad view. Tasks reset every 24 hours.</p>
+                <button class="start-task-btn" id="start-task-button">
+                    <i class="fas fa-play-circle"></i> Watch Ad
+                </button>
             </div>
         </div>
 
         <!-- Withdraw Tab -->
         <div id="withdraw" class="tab-content">
-            <h1 class="main-heading">💸 Withdraw Funds</h1>
-            <div class="card">
-                <p>Available Balance: <strong id="withdraw-balance">0 Pepe</strong></p>
-                <div class="withdraw-form">
-                    <select id="withdraw-method">
-                        <option value="binance">Withdraw Method: Binance</option>
-                    </select>
-                    <input type="number" id="withdraw-amount" placeholder="Amount (min. 10000 Pepe)">
-                    <input type="text" id="withdraw-address" placeholder="Binance Email or UID">
-                    <button id="withdraw-btn" class="btn btn-primary btn-full-width">Request Withdraw</button>
-                </div>
+            <h2 class="page-title">Withdraw Funds</h2>
+            <div class="available-balance-banner">
+                Available Balance: <span class="bold-text"><span id="withdraw-balance">0</span> PEPE</span>
             </div>
-            <div class="card">
-                <h3>Withdrawal History</h3>
-                <ul id="history-list">
-                    <li>No withdrawal history.</li>
-                </ul>
+            <div class="withdraw-form-card">
+                <h3 class="card-title">Request Withdrawal</h3>
+                <div class="input-group">
+                    <label for="withdraw-method">Method</label>
+                    <select id="withdraw-method">
+                        <option value="binancepay">Binance Pay (Min: 10,000 PEPE)</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="withdraw-amount">Amount</label>
+                    <input type="number" id="withdraw-amount" placeholder="e.g., 15000" />
+                </div>
+                <div class="input-group">
+                    <label for="wallet-id">Binance ID or Email</label>
+                    <input type="text" id="wallet-id" placeholder="Enter your Binance Pay ID or Email" />
+                </div>
+                <button class="submit-withdrawal-btn" id="submit-withdrawal-button">
+                    <i class="fas fa-paper-plane"></i> Submit Request
+                </button>
+            </div>
+
+            <div class="transaction-history">
+                <h3 class="section-title">Recent Withdrawals</h3>
+                <div id="history-list">
+                    <p class="no-history">You have no withdrawal history yet.</p>
+                </div>
             </div>
         </div>
 
         <!-- Profile Tab -->
         <div id="profile" class="tab-content">
-            <h1 class="main-heading">👤 Profile</h1>
-            <div class="card profile-header">
-                <img id="profile-pic" src="https://i.ibb.co/2tD3sS3/default-avatar.png" alt="Profile Picture">
-                <h2 id="profile-name">User Name</h2>
-                <p id="profile-username">@username</p>
-            </div>
-            <div class="card">
-                <h3>Your Referral Link</h3>
-                <div class="referral-link">
-                    <input type="text" id="referral-link-input" readonly>
-                    <button id="copy-referral-btn" class="btn btn-secondary">📋 Copy</button>
+            <div class="profile-header">
+                <img src="https://i.ibb.co/2tD3sS3/default-avatar.png" alt="User Profile" id="profile-pic-large" class="profile-pic-large" />
+                <h3 id="profile-name">User</h3>
+                <p id="telegram-username" class="text-muted">@username</p>
+                <p class="profile-balance">Balance: <span id="profile-balance">0</span> PEPE</p>
+
+                <div style="margin-top:12px; display:flex; gap:8px; align-items:center; justify-content:center; width:100%;">
+                    <input id="profile-referral-link" readonly style="width:75%; padding:10px; border-radius:10px; border:1px solid #e5e7eb; background:#f8f9fa; text-align:center;" value="" />
+                    <button id="copy-profile-link-btn" style="padding:10px 12px; border-radius:10px; border:none; background:#3F83F8; color:white;"><i class="fas fa-copy"></i></button>
                 </div>
             </div>
-             <div class="card">
-                <h3>📊 Statistics</h3>
-                <div class="profile-stats">
-                    <div class="stat-item">
-                        <span>Total Lifetime Earned</span>
-                        <strong id="total-earned">0 Pepe</strong>
-                    </div>
-                    <div class="stat-item">
-                        <span>Total Ads Watched</span>
-                        <strong id="total-ads-watched">0</strong>
-                    </div>
-                    <div class="stat-item">
-                        <span>Total Referrals</span>
-                        <strong id="total-referrals">0</strong>
-                    </div>
-                    <div class="stat-item">
-                        <span>Total Referral Earnings</span>
-                        <strong id="total-referral-earnings">0 Pepe</strong>
-                    </div>
+
+            <div class="profile-stats">
+                <h3 class="section-title">Statistics</h3>
+                <div class="stat-item">
+                    <p><i class="fas fa-chart-line icon-left"></i> Earned So Far</p>
+                    <p class="stat-value"><span id="earned-so-far">0</span> PEPE</p>
+                </div>
+                <div class="stat-item">
+                    <p><i class="fas fa-tv icon-left"></i> Total Ads Viewed</p>
+                    <p class="stat-value" id="total-ads-viewed">0</p>
+                </div>
+                <div class="stat-item">
+                    <p><i class="fas fa-users icon-left"></i> Total Referrals</p>
+                    <p class="stat-value" id="total-refers">0</p>
                 </div>
             </div>
         </div>
 
-        <!-- Referral Popup -->
-        <div id="referral-popup" class="popup">
-            <div class="popup-content card">
-                <span class="close-popup">&times;</span>
-                <h2>🎁 Refer & Earn!</h2>
-                <p>Invite your friends and earn a <strong>10% commission</strong> from their earnings forever!</p>
-                <input type="text" id="popup-referral-link" readonly>
-                <button id="popup-copy-btn" class="btn btn-primary btn-full-width">📋 Copy Link</button>
+        <button class="refer-fab" id="refer-fab"><i class="fas fa-gift"></i></button>
+
+        <div id="refer-modal" class="modal-overlay">
+            <div class="modal-content">
+                <button class="close-btn" id="close-modal-btn">&times;</button>
+                <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
+                <p class="modal-subtitle">Earn a <span class="highlight">10% commission</span> from your friends' earnings!</p>
+
+                <div class="referral-link-container">
+                    <input type="text" id="referral-link-modal" value="" readonly />
+                    <button id="copy-modal-link-btn"><i class="fas fa-copy"></i></button>
+                </div>
+
+                <div class="referral-stats">
+                    <p><strong><span id="refer-count">0</span></strong> Referrals</p>
+                    <p><strong><span id="refer-earnings">0</span> PEPE</strong> Earned</p>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Bottom Navigation -->
-    <nav class="bottom-nav">
-        <button class="nav-btn active" data-tab="home">🏠<span>Home</span></button>
-        <button class="nav-btn" data-tab="earn">💪<span>Earn</span></button>
-        <button class="nav-btn" data-tab="withdraw">🏧<span>Withdraw</span></button>
-        <button class="nav-btn" data-tab="profile">👤<span>Profile</span></button>
+    <!-- Navigation Bar -->
+    <nav class="nav-bar">
+        <a href="#" class="nav-item active" data-tab="home"><i class="fas fa-home"></i><span>Home</span></a>
+        <a href="#" class="nav-item" data-tab="earn"><i class="fas fa-coins"></i><span>Earn</span></a>
+        <a href="#" class="nav-item" data-tab="withdraw"><i class="fas fa-wallet"></i><span>Withdraw</span></a>
+        <a href="#" class="nav-item" data-tab="profile"><i class="fas fa-user"></i><span>Profile</span></a>
     </nav>
 
-    <!-- Gift Box Icon -->
-    <div id="gift-box-icon" class="gift-box">🎁</div>
-
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     <script src="script.js"></script>
