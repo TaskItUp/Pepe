@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Crypto Task App</title>
-    <!-- Stylesheets, Fonts, SDKs -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -14,6 +13,13 @@
 </head>
 <body>
 
+    <!-- Loading Container - Shown on startup -->
+    <div id="loading-container">
+        <div class="spinner"></div>
+        <p id="loading-text">Loading App...</p>
+    </div>
+
+    <!-- Main App Container - Hidden until ready -->
     <div id="app-container">
         <!-- Home Tab -->
         <div id="home" class="tab-content active">
@@ -62,7 +68,7 @@
             <div class="earn-task-card">
                 <h3 class="card-title">Today's Ad Tasks</h3>
                 <div class="task-progress-info">
-                    <p>Completed: <span id="tasks-completed">0</span> / 40</p>
+                    <p>Completed: <span id="tasks-completed">0 / 40</span></p>
                 </div>
                 <div class="progress-bar-container">
                     <div class="progress-bar" id="task-progress-bar" style="width: 0%;"></div>
@@ -100,12 +106,10 @@
                     <i class="fas fa-paper-plane"></i> Submit Request
                 </button>
             </div>
-
-            <!-- Transaction History Section -->
             <div class="transaction-history">
                 <h3 class="section-title">Recent Withdrawals</h3>
                 <div id="history-list">
-                    <p class="no-history">You have no withdrawal history yet.</p>
+                    <!-- History items will be injected here -->
                 </div>
             </div>
         </div>
@@ -141,21 +145,14 @@
             <div class="modal-content">
                 <button class="close-btn" onclick="closeReferModal()">&times;</button>
                 <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
-                <p class="modal-subtitle">Earn a <span class="highlight">10% commission</span> from your friends' earnings!</p>
+                <p class="modal-subtitle">Share this unique link with your friends. When they join, you'll get credit instantly!</p>
                 <div class="referral-link-container">
-                    <input type="text" id="referral-link" value="https://t.me/TaskItUpBot?start=a042581f4" readonly>
-                    <button onclick="copyReferralLink(this)"><i class="fas fa-copy"></i></button>
+                    <input type="text" id="referral-link" value="Generating..." readonly>
+                    <button onclick="copyReferralLink(this)" disabled><i class="fas fa-copy"></i></button>
                 </div>
                 <div class="referral-stats">
                     <p><strong><span id="refer-count">0</span></strong> Referrals</p>
                     <p><strong><span id="refer-earnings">0</span> PEPE</strong> Earned</p>
-                </div>
-                <div class="referral-requirements">
-                    <h4>How a referral is counted:</h4>
-                    <ul>
-                        <li><i class="fas fa-check-circle"></i> Your friend must join using your unique link.</li>
-                        <li><i class="fas fa-check-circle"></i> Your referral count increases instantly when they join.</li>
-                    </ul>
                 </div>
             </div>
         </div>
@@ -171,8 +168,9 @@
     
     <!-- Scripts -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js" defer></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js" defer></script>
-    <script src="script.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
