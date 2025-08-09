@@ -123,4 +123,3 @@ body { font-family: 'Poppins', sans-serif; background-color: var(--background-co
 .history-item.completed { border-left-color: var(--secondary-color); }
 .history-status.pending { background-color: var(--accent-color); }
 .history-status.completed { background-color: var(--secondary-color); }
-
