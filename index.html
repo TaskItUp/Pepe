@@ -11,7 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css" />
 
-    <!-- Ad SDK (kept as in your original) -->
+    <!-- Ad SDK -->
     <script src='//libtl.com/sdk.js' data-zone='9685198' data-sdk='show_9685198'></script>
 
     <!-- Styles -->
@@ -55,8 +55,8 @@
                         <p class="task-reward">+300 PEPE</p>
                     </div>
                     <div class="task-buttons">
-                        <button class="join-btn"><i class="fab fa-telegram-plane"></i> Join</button>
-                        <button class="verify-btn" disabled>Verify</button>
+                        <button class="join-btn" type="button"><i class="fab fa-telegram-plane"></i> Join</button>
+                        <button class="verify-btn" type="button" disabled>Verify</button>
                     </div>
                     <div class="task-done"><i class="fas fa-check"></i> Done</div>
                 </div>
@@ -69,13 +69,13 @@
             <div class="earn-task-card">
                 <h3 class="card-title">Today's Ad Tasks</h3>
                 <div class="task-progress-info">
-                    <p>Completed: <span id="tasks-completed">0</span> / 40</p>
+                    <p>Completed: <span id="tasks-completed">0</span></p>
                 </div>
                 <div class="progress-bar-container">
                     <div class="progress-bar" id="task-progress-bar" style="width: 0%;"></div>
                 </div>
                 <p class="reward-info">Get <span class="reward-amount">250 PEPE</span> for each ad view. Tasks reset every 24 hours.</p>
-                <button class="start-task-btn" id="start-task-button" onclick="completeAdTask()">
+                <button class="start-task-btn" id="start-task-button" type="button">
                     <i class="fas fa-play-circle"></i> Watch Ad
                 </button>
             </div>
@@ -103,12 +103,11 @@
                     <label for="wallet-id">Binance ID or Email</label>
                     <input type="text" id="wallet-id" placeholder="Enter your Binance Pay ID or Email" />
                 </div>
-                <button class="submit-withdrawal-btn" onclick="submitWithdrawal()">
+                <button class="submit-withdrawal-btn" id="submit-withdraw-btn" type="button">
                     <i class="fas fa-paper-plane"></i> Submit Request
                 </button>
             </div>
 
-            <!-- Transaction History Section -->
             <div class="transaction-history">
                 <h3 class="section-title">Recent Withdrawals</h3>
                 <div id="history-list">
@@ -125,10 +124,9 @@
                 <p id="telegram-username" class="text-muted">@username</p>
                 <p class="profile-balance">Balance: <span id="profile-balance">0</span> PEPE</p>
 
-                <!-- Live Referral Link in Profile -->
                 <div style="margin-top:12px; display:flex; gap:8px; align-items:center; justify-content:center; width:100%;">
                     <input id="profile-referral-link" readonly style="width:75%; padding:10px; border-radius:10px; border:1px solid #e5e7eb; background:#f8f9fa; text-align:center;" value="" />
-                    <button onclick="copyReferralLink(this, 'profile-referral-link')" style="padding:10px 12px; border-radius:10px; border:none; background:#3F83F8; color:white;"><i class="fas fa-copy"></i></button>
+                    <button type="button" onclick="copyReferralLink(this, 'profile-referral-link')" style="padding:10px 12px; border-radius:10px; border:none; background:#3F83F8; color:white;"><i class="fas fa-copy"></i></button>
                 </div>
             </div>
 
@@ -150,18 +148,17 @@
         </div>
 
         <!-- Refer FAB + Modal -->
-        <button class="refer-fab" onclick="openReferModal()"><i class="fas fa-gift"></i></button>
+        <button class="refer-fab" id="refer-fab" type="button"><i class="fas fa-gift"></i></button>
 
         <div id="refer-modal" class="modal-overlay">
             <div class="modal-content">
-                <button class="close-btn" onclick="closeReferModal()">&times;</button>
+                <button class="close-btn" type="button" id="close-refer-modal">&times;</button>
                 <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
                 <p class="modal-subtitle">Earn a <span class="highlight">10% commission</span> from your friends' earnings!</p>
 
-                <!-- Dynamic referral link -->
                 <div class="referral-link-container">
                     <input type="text" id="referral-link" value="" readonly />
-                    <button onclick="copyReferralLink(this)"><i class="fas fa-copy"></i></button>
+                    <button type="button" onclick="copyReferralLink(this)"><i class="fas fa-copy"></i></button>
                 </div>
 
                 <div class="referral-stats">
@@ -188,12 +185,12 @@
         <a href="#" class="nav-item" onclick="showTab('profile', this)"><i class="fas fa-user"></i><span>Profile</span></a>
     </nav>
 
-    <!-- External SDKs & Firebase (compat) -->
+    <!-- External SDKs & Firebase -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js" defer></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js" defer></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 
-    <!-- Your main script -->
-    <script src="script.js" defer></script>
+    <!-- Main Script -->
+    <script src="script.js"></script>
 </body>
 </html>
