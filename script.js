@@ -37,7 +37,7 @@ function initializeApp(tgUser) {
 }
 
 async function handleUserSnapshot(doc) {
-    // If the app is already running, just update the state.
+    // If the app is already running, just update the state and UI.
     if (isInitialized) {
         if (doc.exists) {
             userState = doc.data();
@@ -46,7 +46,7 @@ async function handleUserSnapshot(doc) {
         return;
     }
 
-    // This block runs only ONCE on the very first data received.
+    // This block only runs ONCE on the very first data received.
     if (doc.exists) {
         // CASE 1: The user is an EXISTING user.
         console.log("Existing user detected. Setting up app.");
@@ -56,15 +56,14 @@ async function handleUserSnapshot(doc) {
     } else {
         // CASE 2: The user is NEW.
         console.log("New user detected. Starting account creation process.");
+        // We set isInitialized to true here to "lock" this path and prevent it from running again.
+        isInitialized = true; 
         document.getElementById('loading-text').textContent = 'Finalizing account setup...';
         await processNewUser();
-        // After this, the listener will fire again, and the app will enter CASE 1.
+        // The onSnapshot listener will automatically get the new user data and call setupAppForUser.
     }
 }
 
-/**
- * Creates a new user and leaves a "note" (unclaimedReferral doc) for the referrer.
- */
 async function processNewUser() {
     const referrerId = telegramUser?.start_param;
     const newUserRef = db.collection('users').doc(telegramUserId);
@@ -80,11 +79,9 @@ async function processNewUser() {
     };
 
     try {
-        // First, create the user document.
         await newUserRef.set(newUserState);
         console.log("New user document created.");
 
-        // If they were referred, create the "note" for the referrer to find.
         if (referrerId) {
             await db.collection('unclaimedReferrals').add({
                 referrerId: referrerId,
@@ -103,28 +100,20 @@ async function processNewUser() {
 
 function handleUserError(error) {
     console.error("Firestore listener failed:", error);
-    document.getElementById('loading-text').textContent = 'Failed to connect to the database. Check security rules.';
+    document.getElementById('loading-text').textContent = 'Failed to connect. Check Firestore Rules.';
 }
 
-/**
- * Sets up listeners and shows the main app content. Called only once.
- */
 function setupAppForUser() {
-    isInitialized = true; 
-    console.log("Setting up UI and listeners for the first time.");
+    console.log("Setting up UI and all listeners.");
     db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(updateWithdrawalHistory);
-    // New listener to check for referrals to claim
     db.collection('unclaimedReferrals').where('referrerId', '==', telegramUserId).where('status', '==', 'unclaimed').onSnapshot(handleUnclaimedReferrals);
     setupTaskButtonListeners();
     document.getElementById('loading-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
 }
 
-/**
- * Handles showing the "Claim" button when new referrals are found.
- */
 function handleUnclaimedReferrals(snapshot) {
-    unclaimedReferrals = snapshot.docs; // Store the referral documents
+    unclaimedReferrals = snapshot.docs; // Store the raw referral documents
     const claimSection = document.getElementById('claim-section');
     const claimText = document.getElementById('claim-text');
     const claimButton = document.getElementById('claim-button');
@@ -138,9 +127,6 @@ function handleUnclaimedReferrals(snapshot) {
     }
 }
 
-/**
- * Called by the "Claim Now" button. Updates the user's own referral count.
- */
 async function claimReferrals() {
     const claimButton = document.getElementById('claim-button');
     claimButton.disabled = true;
@@ -150,17 +136,20 @@ async function claimReferrals() {
     if (numToClaim === 0) return;
 
     try {
-        // This transaction is secure because the user is only modifying their OWN data.
-        await db.runTransaction(async (transaction) => {
-            const userRef = db.collection('users').doc(telegramUserId);
-            // 1. Update the user's own totalRefers count.
-            transaction.update(userRef, { totalRefers: firebase.firestore.FieldValue.increment(numToClaim) });
+        const batch = db.batch();
+        const userRef = db.collection('users').doc(telegramUserId);
+        
+        // 1. Update the user's own totalRefers count.
+        batch.update(userRef, { totalRefers: firebase.firestore.FieldValue.increment(numToClaim) });
 
-            // 2. Mark each referral note as "claimed".
-            for (const doc of unclaimedReferrals) {
-                transaction.update(doc.ref, { status: 'claimed' });
-            }
+        // 2. Mark each referral note as "claimed".
+        unclaimedReferrals.forEach(doc => {
+            batch.update(doc.ref, { status: 'claimed' });
         });
+        
+        // Commit all the changes at once.
+        await batch.commit();
+
         alert(`Success! You have claimed ${numToClaim} referral(s).`);
         claimButton.innerHTML = '<i class="fas fa-gift"></i> Claim Now';
     } catch (error) {
@@ -200,7 +189,7 @@ function updateUI() {
     document.getElementById('refer-count').textContent = format(totalRefers);
 
     document.querySelectorAll('.task-card').forEach(card => card.classList.remove('completed'));
-    joinedBonusTasks.forEach(taskId => {
+    (joinedBonusTasks || []).forEach(taskId => {
         const taskCard = document.getElementById(`task-${taskId}`);
         if (taskCard) taskCard.classList.add('completed');
     });
@@ -239,10 +228,12 @@ window.submitWithdrawal = async function() {
     const walletId = document.getElementById('wallet-id').value.trim();
     if (isNaN(amount) || amount <= 0 || !walletId) { alert('Please enter a valid amount and wallet ID.'); return; }
     if (amount < WITHDRAWAL_MINIMUMS.binancepay) { alert(`Withdrawal failed. Minimum is ${WITHDRAWAL_MINIMUMS.binancepay.toLocaleString()} PEPE.`); return; }
-    if (amount > userState.balance) { alert('Withdrawal failed. Insufficient balance.'); return; }
+    if (!userState || amount > userState.balance) { alert('Withdrawal failed. Insufficient balance.'); return; }
 
     try {
-        await db.collection('withdrawals').add({
+        const batch = db.batch();
+        const withdrawalRef = db.collection('withdrawals').doc();
+        batch.set(withdrawalRef, {
             userId: telegramUserId,
             username: userState.telegramUsername,
             amount: amount,
@@ -252,9 +243,10 @@ window.submitWithdrawal = async function() {
             status: "pending",
             requestedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
-        await db.collection('users').doc(telegramUserId).update({
-            balance: firebase.firestore.FieldValue.increment(-amount)
-        });
+        const userRef = db.collection('users').doc(telegramUserId);
+        batch.update(userRef, { balance: firebase.firestore.FieldValue.increment(-amount) });
+        await batch.commit();
+
         alert(`Success! Your withdrawal request has been submitted.`);
         document.getElementById('withdraw-amount').value = '';
         document.getElementById('wallet-id').value = '';
@@ -292,4 +284,4 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         document.getElementById('loading-text').textContent = 'Please run this app inside Telegram.';
     }
-});
+});```
