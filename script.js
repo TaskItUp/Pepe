@@ -11,7 +11,6 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-const functions = firebase.functions();
 
 // --- [GLOBAL STATE & CONSTANTS] ---
 let userState = null;
@@ -33,28 +32,15 @@ function initializeApp(tgUser) {
     telegramUser = tgUser;
     telegramUserId = tgUser.id.toString();
     console.log(`Initializing for User ID: ${telegramUserId}`);
-    
-    // Listen to the user's document. This is our single source of truth.
     db.collection('users').doc(telegramUserId).onSnapshot(handleUserSnapshot, handleUserError);
 }
 
 async function handleUserSnapshot(doc) {
     if (!doc.exists && !isInitialized) {
-        // --- NEW USER FLOW ---
         isInitialized = true;
-        document.getElementById('loading-text').textContent = 'Creating your account...';
-        
-        const referralToken = telegramUser?.start_param;
-        const claimReferralToken = functions.httpsCallable('claimReferralToken');
-        try {
-            await claimReferralToken({ token: referralToken, tgUser: telegramUser });
-            // The listener will automatically receive the new user data, triggering the 'else' block.
-        } catch (error) {
-            console.error("Critical error during account creation:", error);
-            document.getElementById('loading-text').textContent = `Error: ${error.message}. Please restart.`;
-        }
+        document.getElementById('loading-text').textContent = 'Finalizing account setup...';
+        await processNewUser();
     } else if (doc.exists) {
-        // --- EXISTING USER FLOW ---
         userState = doc.data();
         if (!isInitialized) {
             isInitialized = true;
@@ -64,9 +50,60 @@ async function handleUserSnapshot(doc) {
     }
 }
 
+async function processNewUser() {
+    const voucherId = telegramUser?.start_param;
+    const newUserRef = db.collection('users').doc(telegramUserId);
+    const newUserState = {
+        username: `${telegramUser.first_name || ''} ${telegramUser.last_name || ''}`.trim() || 'New User',
+        telegramUsername: `@${telegramUser.username || telegramUserId}`,
+        profilePicUrl: `https://i.pravatar.cc/150?u=${telegramUserId}`,
+        balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null,
+        totalEarned: 0, totalAdsViewed: 0, totalRefers: 0,
+        joinedBonusTasks: [], referredBy: null,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (!voucherId) {
+        console.log("No referral voucher found. Creating new user.");
+        await newUserRef.set(newUserState).catch(err => console.error("Failed to create new user:", err));
+        return;
+    }
+
+    console.log(`Voucher ${voucherId} found. Attempting to claim.`);
+    const voucherRef = db.collection('referralLedger').doc(voucherId);
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            const voucherDoc = await transaction.get(voucherRef);
+            if (!voucherDoc.exists) {
+                console.warn("Voucher is invalid or already claimed.");
+                transaction.set(newUserRef, newUserState);
+                return;
+            }
+
+            const referrerId = voucherDoc.data().referrerId;
+            if (!referrerId) throw new Error("Voucher is corrupted.");
+            
+            const referrerRef = db.collection('users').doc(referrerId);
+            newUserState.referredBy = referrerId;
+            
+            console.log(`Voucher is valid. Crediting referrer: ${referrerId}`);
+            
+            transaction.set(newUserRef, newUserState);
+            transaction.update(referrerRef, { totalRefers: firebase.firestore.FieldValue.increment(1) });
+            transaction.delete(voucherRef);
+        });
+        console.log("Referral claimed successfully!");
+    } catch (error) {
+        console.error("Referral transaction failed:", error);
+        // If transaction fails, create user without referral so they aren't stuck.
+        await newUserRef.set(newUserState).catch(err => console.error("Fallback user creation failed:", err));
+    }
+}
+
 function handleUserError(error) {
     console.error("Firestore listener failed:", error);
-    document.getElementById('loading-text').textContent = 'Failed to connect to the database. Check security rules.';
+    document.getElementById('loading-text').textContent = 'Failed to connect to the database.';
 }
 
 function setupAppForUser() {
@@ -80,9 +117,7 @@ function setupAppForUser() {
 function updateUI() {
     if (!userState) return;
 
-    const { balance = 0, tasksCompletedToday = 0, totalEarned = 0, totalAdsViewed = 0, totalRefers = 0, referralEarnings = 0, profilePicUrl, username, telegramUsername, joinedBonusTasks = [] } = userState;
-
-    // Format numbers for display
+    const { balance = 0, tasksCompletedToday = 0, totalEarned = 0, totalAdsViewed = 0, totalRefers = 0, profilePicUrl, username, telegramUsername, joinedBonusTasks = [] } = userState;
     const format = (n) => Math.floor(n).toLocaleString();
 
     document.querySelectorAll('.profile-pic, .profile-pic-large').forEach(img => { if (profilePicUrl) img.src = profilePicUrl; });
@@ -104,9 +139,7 @@ function updateUI() {
     document.getElementById('earned-so-far').textContent = format(totalEarned);
     document.getElementById('total-ads-viewed').textContent = format(totalAdsViewed);
     document.getElementById('total-refers').textContent = format(totalRefers);
-    document.getElementById('refer-earnings').textContent = format(referralEarnings);
     document.getElementById('refer-count').textContent = format(totalRefers);
-    document.getElementById('modal-refer-earnings').textContent = format(referralEarnings);
 
     joinedBonusTasks.forEach(taskId => {
         const taskCard = document.getElementById(`task-${taskId}`);
@@ -123,14 +156,14 @@ async function openReferModal() {
     document.getElementById('refer-modal').style.display = 'flex';
 
     try {
-        const generateReferralLink = functions.httpsCallable('generateReferralLink');
-        const result = await generateReferralLink();
-        if (result.data.success) {
-            linkInput.value = result.data.link;
-            copyButton.disabled = false;
-        } else {
-            throw new Error(result.data.error || "Failed to generate link.");
-        }
+        const voucherRef = db.collection('referralLedger').doc();
+        await voucherRef.set({
+            referrerId: telegramUserId,
+            status: 'pending',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        linkInput.value = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${voucherRef.id}`;
+        copyButton.disabled = false;
     } catch (error) {
         console.error("Could not generate referral link:", error);
         linkInput.value = "Error. Please try again.";
@@ -139,16 +172,12 @@ async function openReferModal() {
 
 window.completeAdTask = async function() {
     if (!userState || userState.tasksCompletedToday >= DAILY_TASK_LIMIT) return;
-
     const taskButton = document.getElementById('start-task-button');
     taskButton.disabled = true;
     taskButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Ad...';
-    
     try {
         await window.show_9685198();
-        const userRef = db.collection('users').doc(telegramUserId);
-        // Backend function pays commission automatically when totalEarned is updated.
-        await userRef.update({
+        await db.collection('users').doc(telegramUserId).update({
             balance: firebase.firestore.FieldValue.increment(AD_REWARD),
             totalEarned: firebase.firestore.FieldValue.increment(AD_REWARD),
             tasksCompletedToday: firebase.firestore.FieldValue.increment(1),
@@ -158,7 +187,7 @@ window.completeAdTask = async function() {
         alert(`Success! ${AD_REWARD} PEPE added.`);
     } catch (error) {
         console.error("Ad task failed:", error);
-        alert("Ad could not be shown or was closed early. Please try again.");
+        alert("Ad could not be shown or was closed early.");
     }
 }
 
@@ -204,7 +233,7 @@ function updateWithdrawalHistory(querySnapshot) {
 }
 
 // --- [UTILITY & OTHER FUNCTIONS] ---
-function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => { handleJoinClick(taskId, url); }); } if (verifyBtn) { verifyBtn.addEventListener('click', () => { handleVerifyClick(taskId, reward); }); } }); }
+function setupTaskButtonListeners() { document.querySelectorAll('.task-card').forEach(card => { const joinBtn = card.querySelector('.join-btn'); const verifyBtn = card.querySelector('.verify-btn'); const taskId = card.dataset.taskId; const url = card.dataset.url; const reward = parseInt(card.dataset.reward); if (joinBtn) { joinBtn.addEventListener('click', () => handleJoinClick(taskId, url)); } if (verifyBtn) { verifyBtn.addEventListener('click', () => handleVerifyClick(taskId, reward)); } }); }
 async function handleVerifyClick(taskId, reward) { if (userState.joinedBonusTasks.includes(taskId)) { alert("Already completed."); return; } const verifyButton = document.querySelector(`#task-${taskId} .verify-btn`); verifyButton.disabled = true; verifyButton.textContent = "Verifying..."; try { await db.collection('users').doc(telegramUserId).update({ balance: firebase.firestore.FieldValue.increment(reward), totalEarned: firebase.firestore.FieldValue.increment(reward), joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId) }); alert(`Success! You earned ${reward} PEPE.`); } catch (error) { console.error("Verify task failed:", error); alert("An error occurred."); verifyButton.disabled = false; verifyButton.textContent = "Verify"; } }
 function handleJoinClick(taskId, url) { const taskCard = document.getElementById(`task-${taskId}`); if (!taskCard) return; taskCard.querySelector('.verify-btn').disabled = false; taskCard.querySelector('.join-btn').disabled = true; window.open(url, '_blank'); alert("Return and press 'Verify' to claim your reward."); }
 window.showTab = function(tabName, element) { document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active')); document.getElementById(tabName).classList.add('active'); document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active')); element.classList.add('active'); }
