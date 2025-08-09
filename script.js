@@ -1,8 +1,7 @@
 // -----------------------------
-// script.js - DEBUG VERSION FOR REFERRALS
+// script.js - FINAL MERGED VERSION
 // -----------------------------
 
-// --- CONFIG ---
 const firebaseConfig = {
   apiKey: "AIzaSyB1TYSc2keBepN_cMV9oaoHFRdcJaAqG_g",
   authDomain: "taskup-9ba7b.firebaseapp.com",
@@ -13,19 +12,16 @@ const firebaseConfig = {
   measurementId: "G-JNNLG1E49L"
 };
 
-const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
 const REFERRAL_COMMISSION_RATE = 0.10;
-const WITHDRAWAL_MINIMUMS = { binancepay: 10000 };
 
-// --- STATE ---
 let useFirebase = false;
 let db = null;
 let userState = {};
 let telegramUserId = null;
 
-// --- DB WRAPPER ---
+// --- DB Wrapper ---
 const DB = {
   async init() {
     if (window.firebase && window.firebase.initializeApp) {
@@ -37,43 +33,39 @@ const DB = {
         useFirebase = true;
         console.log("✅ Using Firebase Firestore");
       } catch (e) {
-        console.warn("⚠️ Firebase init failed, using localStorage mode:", e);
+        console.warn("⚠️ Firebase init failed:", e);
         useFirebase = false;
       }
     } else {
-      console.warn("⚠️ Firebase SDK missing — using localStorage fallback.");
+      console.warn("⚠️ Firebase SDK not loaded");
       useFirebase = false;
     }
   },
   async getUserDoc(userId) {
     if (useFirebase) {
-      const d = await db.collection('users').doc(userId).get();
-      return { exists: d.exists, data: d.data ? d.data() : null };
+      const doc = await db.collection('users').doc(userId).get();
+      return { exists: doc.exists, data: doc.data() };
     }
     return { exists: false, data: null };
   },
   async setUserDoc(userId, data) {
-    if (useFirebase) return db.collection('users').doc(userId).set(data);
+    if (useFirebase) {
+      return db.collection('users').doc(userId).set(data);
+    }
   },
   async updateUserDoc(userId, updates) {
-    if (useFirebase) return db.collection('users').doc(userId).update(updates);
+    if (useFirebase) {
+      return db.collection('users').doc(userId).update(updates);
+    }
   }
 };
 
-// --- UTILITIES ---
+// --- Helpers ---
 function generatePlaceholderAvatar(id) {
   return `https://i.pravatar.cc/150?u=${id}`;
 }
 
-function getFakeUserIdForTesting() {
-  let sid = localStorage.getItem('localAppUserId');
-  if (sid) return sid;
-  const newId = 'test_user_' + Date.now().toString(36);
-  localStorage.setItem('localAppUserId', newId);
-  return newId;
-}
-
-function getReferrerIdFromContext(tgUser) {
+function getReferrerId(tgUser) {
   let refId = window.Telegram?.WebApp?.initDataUnsafe?.start_param || null;
   const params = new URLSearchParams(window.location.search);
   if (!refId && params.has('ref')) {
@@ -94,7 +86,7 @@ async function completeAdTask() {
   if (typeof window.show_9685198 === 'function') {
     await window.show_9685198();
   } else {
-    await new Promise(res => setTimeout(res, 1800)); // simulate ad watch
+    await new Promise(res => setTimeout(res, 2000)); // simulate
   }
   if (useFirebase) {
     await DB.updateUserDoc(telegramUserId, {
@@ -125,15 +117,12 @@ async function payReferralCommission(amount) {
 // --- Initialize App ---
 async function initializeApp(tgUser) {
   await DB.init();
-  telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
+  telegramUserId = tgUser ? tgUser.id.toString() : "test_user";
 
   const userDoc = await DB.getUserDoc(telegramUserId);
   if (!userDoc.exists) {
-    const referrerId = getReferrerIdFromContext(tgUser);
+    const referrerId = getReferrerId(tgUser);
     console.log("📢 Detected referrerId:", referrerId);
-    if (!referrerId) {
-      alert("⚠️ No referrer detected — referral will NOT be counted.\nThis means Telegram did not pass the start_param or ?ref=.");
-    }
 
     const newUser = {
       username: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() || 'User' : 'User',
