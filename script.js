@@ -9,155 +9,186 @@ document.addEventListener('DOMContentLoaded', () => {
         appId: "1:1030752202095:web:ac1b5a8ff85ba2c6204c9a"
     };
 
-    // Initialize Firebase
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const tg = window.Telegram.WebApp;
 
-    // --- Basic App Setup ---
     tg.expand();
     tg.ready();
 
-    // --- User Data ---
     let currentUser = null;
+    const AD_REWARD = 250;
+    const DAILY_AD_LIMIT = 40;
 
-    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-        currentUser = tg.initDataUnsafe.user;
-        initializeUser(currentUser);
-    } else {
-        document.body.innerHTML = '<div style="text-align: center; padding-top: 50px; font-family: Poppins, sans-serif;">Please open this app within Telegram.</div>';
+    if (!tg.initDataUnsafe || !tg.initDataUnsafe.user) {
+        document.body.innerHTML = '<div style="text-align: center; padding: 50px; font-family: \'Poppins\', sans-serif;">Please open this app inside Telegram.</div>';
+        return;
     }
+    
+    currentUser = tg.initDataUnsafe.user;
+    initializeUser(currentUser);
 
-    // --- UI Elements ---
-    const balanceElement = document.getElementById('balance');
-    const withdrawBalanceElement = document.getElementById('withdraw-balance');
-    const welcomeMessage = document.getElementById('welcome-message');
-    const adProgress = document.getElementById('ad-progress');
-    const progressBar = document.getElementById('progress-bar');
-    const watchAdBtn = document.getElementById('watch-ad-btn');
-    const historyList = document.getElementById('history-list');
-    const profilePic = document.getElementById('profile-pic');
-    const profileName = document.getElementById('profile-name');
-    const profileUsername = document.getElementById('profile-username');
-    const referralLinkInput = document.getElementById('referral-link-input');
-    const totalEarned = document.getElementById('total-earned');
-    const totalAdsWatched = document.getElementById('total-ads-watched');
-    const totalReferrals = document.getElementById('total-referrals');
-    const totalReferralEarnings = document.getElementById('total-referral-earnings');
-
-
+    // --- MAIN USER INITIALIZATION ---
     async function initializeUser(user) {
-        welcomeMessage.textContent = `Welcome, ${user.first_name}!`;
-        profileName.textContent = `${user.first_name} ${user.last_name || ''}`;
-        profileUsername.textContent = `@${user.username}`;
-        
         const userRef = db.collection('users').doc(String(user.id));
         const userDoc = await userRef.get();
 
         if (!userDoc.exists) {
-            const referrerId = tg.initDataUnsafe.start_param;
-            await userRef.set({
+            const referrerId = tg.initDataUnsafe.start_param || null;
+            const newUser = {
                 id: user.id,
-                username: user.username,
+                username: user.username || 'N/A',
                 firstName: user.first_name,
                 balance: 0,
                 adsWatchedToday: 0,
                 totalAdsEver: 0,
                 lastAdReset: firebase.firestore.Timestamp.now(),
-                joinedChannel: false,
+                completedTasks: [],
                 referrals: 0,
                 referralEarnings: 0,
                 withdrawalTotal: 0,
-                referrer: referrerId || null,
+                referrer: referrerId,
                 createdAt: firebase.firestore.Timestamp.now()
-            });
+            };
+            await userRef.set(newUser);
             if (referrerId) {
                 const referrerRef = db.collection('users').doc(referrerId);
-                referrerRef.update({ referrals: firebase.firestore.FieldValue.increment(1) }).catch(console.error);
+                await referrerRef.update({ referrals: firebase.firestore.FieldValue.increment(1) }).catch(console.error);
             }
         }
-        
+
         userRef.onSnapshot(doc => {
             if (doc.exists) {
                 updateUI(doc.data());
             }
         });
-        
-        db.collection('withdrawals').where("userId", "==", user.id).orderBy("createdAt", "desc")
-          .onSnapshot(snapshot => {
-              historyList.innerHTML = '';
-              if (snapshot.empty) {
-                  historyList.innerHTML = '<li>No withdrawal history.</li>';
-                  return;
-              }
-              snapshot.forEach(doc => {
-                  const w = doc.data();
-                  const listItem = document.createElement('li');
-                  listItem.innerHTML = `<span>${w.amount} Pepe</span><span class="${w.status}">${w.status.charAt(0).toUpperCase() + w.status.slice(1)}</span>`;
-                  historyList.appendChild(listItem);
-              });
-          });
 
-        const referralLink = `https://t.me/TaskItUpBot?start=${user.id}`;
-        referralLinkInput.value = referralLink;
-        document.getElementById('popup-referral-link').value = referralLink;
-    }
-
-    function updateUI(userData) {
-        balanceElement.textContent = `${userData.balance.toLocaleString()} Pepe`;
-        withdrawBalanceElement.textContent = `${userData.balance.toLocaleString()} Pepe`;
-        
-        const now = new Date();
-        const lastReset = userData.lastAdReset.toDate();
-        const hoursDiff = (now - lastReset) / 3600000;
-
-        let adsToday = userData.adsWatchedToday;
-        if (hoursDiff >= 24) {
-            adsToday = 0;
-            db.collection('users').doc(String(currentUser.id)).update({ adsWatchedToday: 0, lastAdReset: firebase.firestore.Timestamp.now() });
-        }
-        
-        adProgress.textContent = `${adsToday}/40`;
-        progressBar.style.width = `${(adsToday / 40) * 100}%`;
-        watchAdBtn.disabled = adsToday >= 40;
-        if(watchAdBtn.disabled) { watchAdBtn.textContent = 'Limit Reached'; } else { watchAdBtn.textContent = 'Watch Ad 👀'; }
-
-        const totalLifetimeEarnings = (userData.balance + userData.withdrawalTotal).toFixed(0);
-        totalEarned.textContent = `${parseInt(totalLifetimeEarnings).toLocaleString()} Pepe`;
-        totalAdsWatched.textContent = userData.totalAdsEver || 0;
-        totalReferrals.textContent = userData.referrals || 0;
-        totalReferralEarnings.textContent = `${(userData.referralEarnings || 0).toLocaleString()} Pepe`;
-    }
-
-    const navButtons = document.querySelectorAll('.nav-btn');
-    const tabContents = document.querySelectorAll('.tab-content');
-
-    navButtons.forEach((button, index) => {
-        button.innerHTML = button.textContent; // Use emoji as content
-        button.addEventListener('click', () => {
-            navButtons.forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
-
-            tabContents.forEach(content => content.classList.remove('active'));
-            document.getElementById(button.dataset.tab).classList.add('active');
-        });
-    });
-
-    document.getElementById('verify-join-btn').addEventListener('click', async () => {
-        const userRef = db.collection('users').doc(String(currentUser.id));
-        const userDoc = await userRef.get();
-        if (!userDoc.data().joinedChannel) {
-            await userRef.update({
-                balance: firebase.firestore.FieldValue.increment(300),
-                joinedChannel: true
+        db.collection('withdrawals').where("userId", "==", user.id).orderBy("createdAt", "desc").limit(10)
+            .onSnapshot(snapshot => {
+                updateWithdrawalHistory(snapshot);
             });
-            tg.showPopup({title: 'Success!', message: 'Verified! 300 Pepe has been added to your balance.'});
-        } else {
-            tg.showPopup({title: 'Oops!', message: 'You have already claimed this bonus.'});
+    }
+    
+    // --- UI UPDATE FUNCTION ---
+    function updateUI(userData) {
+        const { balance, adsWatchedToday, totalAdsEver, lastAdReset, completedTasks, referrals, referralEarnings, withdrawalTotal, firstName, username, id } = userData;
+
+        // Check for daily ad reset
+        const now = new Date();
+        const lastResetDate = lastAdReset.toDate();
+        let currentAdsWatched = adsWatchedToday;
+        if ((now - lastResetDate) / 3600000 >= 24) {
+            currentAdsWatched = 0;
+            db.collection('users').doc(String(id)).update({ adsWatchedToday: 0, lastAdReset: firebase.firestore.Timestamp.now() });
         }
+        
+        const adsLeft = DAILY_AD_LIMIT - currentAdsWatched;
+
+        // Update balances across all tabs
+        const formattedBalance = Math.floor(balance).toLocaleString();
+        document.getElementById('balance-home').textContent = formattedBalance;
+        document.getElementById('withdraw-balance').textContent = formattedBalance;
+        document.getElementById('profile-balance').textContent = formattedBalance;
+
+        // Home Tab
+        document.getElementById('home-username').textContent = firstName;
+        document.getElementById('ads-watched-today').textContent = currentAdsWatched;
+        document.getElementById('ads-left-today').textContent = adsLeft;
+        
+        // Bonus Task Card
+        const channelTaskCard = document.getElementById('task-channel-join');
+        if (completedTasks.includes('channel_1')) {
+            channelTaskCard.classList.add('completed');
+        }
+
+        // Earn Tab
+        document.getElementById('tasks-completed').textContent = currentAdsWatched;
+        const progressPercent = (currentAdsWatched / DAILY_AD_LIMIT) * 100;
+        document.getElementById('task-progress-bar').style.width = `${progressPercent}%`;
+        const watchAdBtn = document.getElementById('start-task-button');
+        watchAdBtn.disabled = adsLeft <= 0;
+        if(watchAdBtn.disabled) watchAdBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Daily Limit Reached';
+        else watchAdBtn.innerHTML = '<i class="fas fa-play-circle"></i> Watch Ad';
+        
+        // Profile Tab
+        document.getElementById('profile-name').textContent = firstName;
+        document.getElementById('telegram-username').textContent = `@${username}`;
+        const totalEarned = balance + withdrawalTotal;
+        document.getElementById('earned-so-far').textContent = Math.floor(totalEarned).toLocaleString();
+        document.getElementById('total-ads-viewed').textContent = totalAdsEver;
+        document.getElementById('total-refers').textContent = referrals;
+
+        // Referral Modal & Links
+        const referralLink = `https://t.me/TaskItUpBot?start=${id}`;
+        document.getElementById('profile-referral-link').value = referralLink;
+        document.getElementById('referral-link-modal').value = referralLink;
+        document.getElementById('refer-count').textContent = referrals;
+        document.getElementById('refer-earnings').textContent = Math.floor(referralEarnings).toLocaleString();
+    }
+    
+    function updateWithdrawalHistory(snapshot) {
+        const historyList = document.getElementById('history-list');
+        historyList.innerHTML = '';
+        if (snapshot.empty) {
+            historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>';
+            return;
+        }
+        snapshot.forEach(doc => {
+            const w = doc.data();
+            const date = w.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const item = document.createElement('div');
+            item.className = `history-item ${w.status}`; // 'pending' or 'completed'
+            item.innerHTML = `
+                <div class="history-details">
+                    <p class="history-amount">${w.amount.toLocaleString()} PEPE</p>
+                    <p class="history-date">${date}</p>
+                </div>
+                <div class="history-status ${w.status}">${w.status.charAt(0).toUpperCase() + w.status.slice(1)}</div>
+            `;
+            historyList.appendChild(item);
+        });
+    }
+
+    // --- EVENT LISTENERS & HANDLERS ---
+    
+    // Tab Navigation
+    document.querySelector('.nav-bar').addEventListener('click', (e) => {
+        const navItem = e.target.closest('.nav-item');
+        if (!navItem) return;
+        
+        document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+        navItem.classList.add('active');
+        
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.getElementById(navItem.dataset.tab).classList.add('active');
     });
 
-    watchAdBtn.addEventListener('click', () => {
+    // Bonus Task Logic
+    const channelTaskCard = document.getElementById('task-channel-join');
+    const joinBtn = channelTaskCard.querySelector('.join-btn');
+    const verifyBtn = channelTaskCard.querySelector('.verify-btn');
+    
+    joinBtn.addEventListener('click', () => {
+        window.open(channelTaskCard.dataset.url, '_blank');
+        verifyBtn.disabled = false;
+    });
+
+    verifyBtn.addEventListener('click', async () => {
+        const userRef = db.collection('users').doc(String(currentUser.id));
+        const doc = await userRef.get();
+        if (doc.data().completedTasks.includes('channel_1')) return;
+
+        await userRef.update({
+            balance: firebase.firestore.FieldValue.increment(Number(channelTaskCard.dataset.reward)),
+            completedTasks: firebase.firestore.FieldValue.arrayUnion('channel_1')
+        });
+        tg.showPopup({ title: 'Success!', message: `+${channelTaskCard.dataset.reward} PEPE has been added to your balance.` });
+        verifyBtn.disabled = true;
+    });
+
+    // Earn Tab Logic
+    document.getElementById('start-task-button').addEventListener('click', async () => {
+        const watchAdBtn = document.getElementById('start-task-button');
         watchAdBtn.disabled = true;
         tg.HapticFeedback.impactOccurred('light');
 
@@ -168,56 +199,49 @@ document.addEventListener('DOMContentLoaded', () => {
                     const userDoc = await transaction.get(userRef);
                     if (!userDoc.exists) throw "User not found!";
                     const userData = userDoc.data();
+                    if (userData.adsWatchedToday >= DAILY_AD_LIMIT) throw "Daily ad limit reached.";
                     
-                    const now = new Date();
-                    const lastReset = userData.lastAdReset.toDate();
-                    if ((now - lastReset) / 3600000 >= 24) {
-                       transaction.update(userRef, { adsWatchedToday: 0, lastAdReset: firebase.firestore.Timestamp.now() });
-                    }
+                    transaction.update(userRef, {
+                        balance: firebase.firestore.FieldValue.increment(AD_REWARD),
+                        adsWatchedToday: firebase.firestore.FieldValue.increment(1),
+                        totalAdsEver: firebase.firestore.FieldValue.increment(1)
+                    });
                     
-                    if (userDoc.data().adsWatchedToday < 40) {
-                        transaction.update(userRef, {
-                            balance: firebase.firestore.FieldValue.increment(250),
-                            adsWatchedToday: firebase.firestore.FieldValue.increment(1),
-                            totalAdsEver: firebase.firestore.FieldValue.increment(1)
+                    if (userData.referrer) {
+                        const referrerRef = db.collection('users').doc(userData.referrer);
+                        const commission = AD_REWARD * 0.10;
+                        transaction.update(referrerRef, {
+                            balance: firebase.firestore.FieldValue.increment(commission),
+                            referralEarnings: firebase.firestore.FieldValue.increment(commission)
                         });
-
-                        if (userData.referrer) {
-                            const referrerRef = db.collection('users').doc(userData.referrer);
-                            const commission = 250 * 0.10;
-                            transaction.update(referrerRef, {
-                                balance: firebase.firestore.FieldValue.increment(commission),
-                                referralEarnings: firebase.firestore.FieldValue.increment(commission)
-                            });
-                        }
-                    } else {
-                        throw "Ad limit reached for today.";
                     }
                 });
                 tg.HapticFeedback.notificationOccurred('success');
             } catch (e) {
-                tg.showPopup({title: 'Error', message: String(e)});
+                tg.showPopup({ title: 'Error', message: String(e) });
                 tg.HapticFeedback.notificationOccurred('error');
             }
-        }, 2000); 
+        }, 2000);
     });
 
-    document.getElementById('withdraw-btn').addEventListener('click', async () => {
+    // Withdrawal Logic
+    document.getElementById('submit-withdrawal-button').addEventListener('click', async () => {
         const amount = parseInt(document.getElementById('withdraw-amount').value);
-        const address = document.getElementById('withdraw-address').value.trim();
+        const address = document.getElementById('wallet-id').value.trim();
+        const MIN_WITHDRAW = 10000;
 
         if (!amount || !address) {
-            tg.showPopup({title: 'Error', message: 'Please fill in all withdrawal fields.'}); return;
+            return tg.showPopup({ title: 'Error', message: 'Please fill in all withdrawal fields.' });
         }
-        if (amount < 10000) {
-            tg.showPopup({title: 'Error', message: 'Minimum withdrawal is 10,000 Pepe.'}); return;
+        if (amount < MIN_WITHDRAW) {
+            return tg.showPopup({ title: 'Error', message: `Minimum withdrawal is ${MIN_WITHDRAW.toLocaleString()} PEPE.` });
         }
 
         const userRef = db.collection('users').doc(String(currentUser.id));
         try {
             await db.runTransaction(async (transaction) => {
                 const userDoc = await transaction.get(userRef);
-                if (!userDoc.exists) throw new Error("User not found");
+                if (!userDoc.exists) throw new Error("User not found.");
                 if (userDoc.data().balance < amount) throw new Error("Insufficient balance.");
                 
                 transaction.update(userRef, { 
@@ -235,28 +259,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     createdAt: firebase.firestore.Timestamp.now()
                 });
             });
-            tg.showPopup({title: 'Success!', message: 'Your withdrawal request is pending.'});
+            tg.showPopup({ title: 'Success!', message: 'Your withdrawal request is pending.' });
             document.getElementById('withdraw-amount').value = '';
-            document.getElementById('withdraw-address').value = '';
-        } catch(e) {
-            tg.showPopup({title: 'Error', message: `An error occurred: ${e.message}`});
+            document.getElementById('wallet-id').value = '';
+        } catch (e) {
+            tg.showPopup({ title: 'Error', message: e.message });
         }
     });
 
-    function copyToClipboard(text) {
+    // Modal and Copy Logic
+    const referModal = document.getElementById('refer-modal');
+    document.getElementById('refer-fab').addEventListener('click', () => referModal.style.display = 'flex');
+    document.getElementById('close-modal-btn').addEventListener('click', () => referModal.style.display = 'none');
+    
+    function copyToClipboard(text, button) {
         navigator.clipboard.writeText(text).then(() => {
             tg.HapticFeedback.notificationOccurred('success');
-            tg.showPopup({message: 'Link copied to clipboard!'});
+            const originalIcon = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-check"></i>';
+            setTimeout(() => { button.innerHTML = originalIcon; }, 1500);
         });
     }
 
-    document.getElementById('copy-referral-btn').addEventListener('click', () => copyToClipboard(referralLinkInput.value));
-    document.getElementById('popup-copy-btn').addEventListener('click', () => copyToClipboard(document.getElementById('popup-referral-link').value));
-
-    const giftBox = document.getElementById('gift-box-icon');
-    const referralPopup = document.getElementById('referral-popup');
-    const closePopup = document.querySelector('.close-popup');
-
-    giftBox.addEventListener('click', () => referralPopup.style.display = 'flex');
-    closePopup.addEventListener('click', () => referralPopup.style.display = 'none');
+    document.getElementById('copy-profile-link-btn').addEventListener('click', (e) => {
+        copyToClipboard(document.getElementById('profile-referral-link').value, e.currentTarget);
+    });
+    document.getElementById('copy-modal-link-btn').addEventListener('click', (e) => {
+        copyToClipboard(document.getElementById('referral-link-modal').value, e.currentTarget);
+    });
 });
