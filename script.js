@@ -16,7 +16,8 @@ const db = firebase.firestore();
 let userState = null;
 let telegramUser = null;
 let telegramUserId = null;
-let isInitialized = false; // This flag is now managed by a more robust logic
+let isInitialized = false;
+let unclaimedReferrals = []; // Store the actual referral documents
 const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
@@ -32,16 +33,11 @@ function initializeApp(tgUser) {
     telegramUser = tgUser;
     telegramUserId = tgUser.id.toString();
     console.log(`Initializing for User ID: ${telegramUserId}`);
-    // Start listening to the user's document. This is our single source of truth.
     db.collection('users').doc(telegramUserId).onSnapshot(handleUserSnapshot, handleUserError);
 }
 
-/**
- * Handles real-time updates from Firestore. This is the heart of the app's logic.
- * The logic is now restructured to prevent the race condition that caused the infinite loading.
- */
 async function handleUserSnapshot(doc) {
-    // If the app is already running, just update the UI with the latest data.
+    // If the app is already running, just update the state.
     if (isInitialized) {
         if (doc.exists) {
             userState = doc.data();
@@ -50,31 +46,27 @@ async function handleUserSnapshot(doc) {
         return;
     }
 
-    // --- This block only runs ONCE on the very first data received ---
+    // This block runs only ONCE on the very first data received.
     if (doc.exists) {
         // CASE 1: The user is an EXISTING user.
         console.log("Existing user detected. Setting up app.");
         userState = doc.data();
-        setupAppForUser(); // This will show the app and set isInitialized to true.
+        setupAppForUser(); // This shows the app and sets isInitialized to true.
         updateUI();
     } else {
         // CASE 2: The user is NEW.
         console.log("New user detected. Starting account creation process.");
         document.getElementById('loading-text').textContent = 'Finalizing account setup...';
-        // Create the user. Do NOT set isInitialized here.
         await processNewUser();
-        // After processNewUser creates the document, this onSnapshot listener will
-        // fire again automatically. On the next fire, doc.exists will be true,
-        // and the code will enter CASE 1, which correctly sets up and shows the app.
+        // After this, the listener will fire again, and the app will enter CASE 1.
     }
 }
 
 /**
- * Creates a new user document and handles the referral voucher atomically.
- * This function is now guaranteed to work with the corrected security rules.
+ * Creates a new user and leaves a "note" (unclaimedReferral doc) for the referrer.
  */
 async function processNewUser() {
-    const voucherId = telegramUser?.start_param;
+    const referrerId = telegramUser?.start_param;
     const newUserRef = db.collection('users').doc(telegramUserId);
     
     const newUserState = {
@@ -83,77 +75,103 @@ async function processNewUser() {
         profilePicUrl: `https://i.pravatar.cc/150?u=${telegramUserId}`,
         balance: 0, tasksCompletedToday: 0, lastTaskTimestamp: null,
         totalEarned: 0, totalAdsViewed: 0, totalRefers: 0,
-        joinedBonusTasks: [], referredBy: null,
+        joinedBonusTasks: [], referredBy: referrerId || null,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    if (!voucherId) {
-        console.log("No referral voucher found. Creating new user.");
-        return newUserRef.set(newUserState).catch(err => {
-            console.error("Failed to create new user:", err);
-            document.getElementById('loading-text').textContent = 'Error creating account.';
-        });
-    }
-
-    console.log(`Voucher ${voucherId} found. Attempting to claim.`);
-    const voucherRef = db.collection('referralLedger').doc(voucherId);
-
     try {
-        await db.runTransaction(async (transaction) => {
-            const voucherDoc = await transaction.get(voucherRef);
-            if (!voucherDoc.exists) {
-                console.warn("Voucher is invalid or already claimed.");
-                transaction.set(newUserRef, newUserState); // Create user normally
-                return;
-            }
+        // First, create the user document.
+        await newUserRef.set(newUserState);
+        console.log("New user document created.");
 
-            const referrerId = voucherDoc.data().referrerId;
-            if (!referrerId) throw new Error("Voucher is corrupted.");
-            
-            const referrerRef = db.collection('users').doc(referrerId);
-            newUserState.referredBy = referrerId;
-            
-            console.log(`Voucher is valid. Crediting referrer: ${referrerId}`);
-            
-            // The atomic transaction: Create new user, update referrer, delete voucher.
-            transaction.set(newUserRef, newUserState);
-            transaction.update(referrerRef, { totalRefers: firebase.firestore.FieldValue.increment(1) });
-            transaction.delete(voucherRef);
-        });
-        console.log("Referral claimed successfully!");
+        // If they were referred, create the "note" for the referrer to find.
+        if (referrerId) {
+            await db.collection('unclaimedReferrals').add({
+                referrerId: referrerId,
+                newUserId: telegramUserId,
+                newUserName: newUserState.username,
+                status: 'unclaimed',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`Unclaimed referral note created for referrer ${referrerId}.`);
+        }
     } catch (error) {
-        console.error("Referral transaction failed:", error);
-        // If the transaction fails for any reason, create the user without the referral
-        // so they are not stuck on the loading screen forever.
-        await newUserRef.set(newUserState).catch(err => {
-            console.error("Fallback user creation failed:", err);
-            document.getElementById('loading-text').textContent = 'Error creating account.';
-        });
+        console.error("Error during new user processing:", error);
+        document.getElementById('loading-text').textContent = "Error creating account.";
     }
 }
 
 function handleUserError(error) {
     console.error("Firestore listener failed:", error);
-    document.getElementById('loading-text').textContent = 'Failed to connect to the database.';
+    document.getElementById('loading-text').textContent = 'Failed to connect to the database. Check security rules.';
 }
 
 /**
  * Sets up listeners and shows the main app content. Called only once.
  */
 function setupAppForUser() {
-    // This is the gatekeeper. Once this runs, the app is officially initialized.
     isInitialized = true; 
     console.log("Setting up UI and listeners for the first time.");
     db.collection('withdrawals').where('userId', '==', telegramUserId).orderBy('requestedAt', 'desc').limit(10).onSnapshot(updateWithdrawalHistory);
+    // New listener to check for referrals to claim
+    db.collection('unclaimedReferrals').where('referrerId', '==', telegramUserId).where('status', '==', 'unclaimed').onSnapshot(handleUnclaimedReferrals);
     setupTaskButtonListeners();
-    // This is the crucial step that was being missed for new users.
     document.getElementById('loading-container').style.display = 'none';
     document.getElementById('app-container').style.display = 'block';
 }
 
 /**
- * Updates all UI elements with data from the global `userState`.
+ * Handles showing the "Claim" button when new referrals are found.
  */
+function handleUnclaimedReferrals(snapshot) {
+    unclaimedReferrals = snapshot.docs; // Store the referral documents
+    const claimSection = document.getElementById('claim-section');
+    const claimText = document.getElementById('claim-text');
+    const claimButton = document.getElementById('claim-button');
+
+    if (unclaimedReferrals.length > 0) {
+        claimText.textContent = `You have ${unclaimedReferrals.length} new referral(s)!`;
+        claimSection.style.display = 'block';
+        claimButton.disabled = false;
+    } else {
+        claimSection.style.display = 'none';
+    }
+}
+
+/**
+ * Called by the "Claim Now" button. Updates the user's own referral count.
+ */
+async function claimReferrals() {
+    const claimButton = document.getElementById('claim-button');
+    claimButton.disabled = true;
+    claimButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Claiming...';
+    
+    const numToClaim = unclaimedReferrals.length;
+    if (numToClaim === 0) return;
+
+    try {
+        // This transaction is secure because the user is only modifying their OWN data.
+        await db.runTransaction(async (transaction) => {
+            const userRef = db.collection('users').doc(telegramUserId);
+            // 1. Update the user's own totalRefers count.
+            transaction.update(userRef, { totalRefers: firebase.firestore.FieldValue.increment(numToClaim) });
+
+            // 2. Mark each referral note as "claimed".
+            for (const doc of unclaimedReferrals) {
+                transaction.update(doc.ref, { status: 'claimed' });
+            }
+        });
+        alert(`Success! You have claimed ${numToClaim} referral(s).`);
+        claimButton.innerHTML = '<i class="fas fa-gift"></i> Claim Now';
+    } catch (error) {
+        console.error("Failed to claim referrals:", error);
+        alert("An error occurred while claiming. Please try again.");
+        claimButton.disabled = false;
+        claimButton.innerHTML = '<i class="fas fa-gift"></i> Claim Now';
+    }
+}
+
+
 function updateUI() {
     if (!userState) return;
 
@@ -181,7 +199,6 @@ function updateUI() {
     document.getElementById('total-refers').textContent = format(totalRefers);
     document.getElementById('refer-count').textContent = format(totalRefers);
 
-    // Reset all cards to not completed before applying the class
     document.querySelectorAll('.task-card').forEach(card => card.classList.remove('completed'));
     joinedBonusTasks.forEach(taskId => {
         const taskCard = document.getElementById(`task-${taskId}`);
@@ -189,29 +206,11 @@ function updateUI() {
     });
 }
 
-/**
- * Generates and displays the user's unique referral link by creating a voucher.
- */
-async function openReferModal() {
+function openReferModal() {
     const linkInput = document.getElementById('referral-link');
-    const copyButton = linkInput.nextElementSibling;
-    
-    linkInput.value = 'Generating...';
-    copyButton.disabled = true;
+    // The link is now permanent and doesn't need to be generated.
+    linkInput.value = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${telegramUserId}`;
     document.getElementById('refer-modal').style.display = 'flex';
-
-    try {
-        const voucherRef = db.collection('referralLedger').doc();
-        await voucherRef.set({
-            referrerId: telegramUserId,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        linkInput.value = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${voucherRef.id}`;
-        copyButton.disabled = false;
-    } catch (error) {
-        console.error("Could not generate referral link:", error);
-        linkInput.value = "Error. Please try again.";
-    }
 }
 
 window.completeAdTask = async function() {
@@ -232,11 +231,6 @@ window.completeAdTask = async function() {
     } catch (error) {
         console.error("Ad task failed:", error);
         alert("Ad could not be shown or was closed early.");
-        // Re-enable button on failure to allow retry
-        if (userState && userState.tasksCompletedToday < DAILY_TASK_LIMIT) {
-             taskButton.disabled = false;
-             taskButton.innerHTML = '<i class="fas fa-play-circle"></i> Watch Ad';
-        }
     }
 }
 
