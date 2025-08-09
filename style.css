@@ -40,7 +40,7 @@ body { font-family: 'Poppins', sans-serif; background-color: var(--background-co
 .progress-bar { height: 100%; background: linear-gradient(90deg, var(--secondary-color), #34D399); border-radius: 10px; transition: width 0.5s ease-in-out; }
 .reward-info { text-align: center; color: var(--text-secondary); margin-bottom: 20px; }
 .reward-amount { color: var(--text-primary); font-weight: 600; }
-.start-task-btn { width: 100%; padding: 15px; font-size: 1.1rem; font-weight: 600; font-family: 'Poppins', sans-serif; background-color: var(--secondary-color); color: var(--text-light); border: none; border-radius: 12px; cursor: pointer; box-show: 0 5px 10px -2px rgba(16, 185, 129, 0.4); transition: all 0.2s ease; }
+.start-task-btn { width: 100%; padding: 15px; font-size: 1.1rem; font-weight: 600; font-family: 'Poppins', sans-serif; background-color: var(--secondary-color); color: var(--text-light); border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 5px 10px -2px rgba(16, 185, 129, 0.4); transition: all 0.2s ease; }
 .start-task-btn:disabled { background-color: var(--text-secondary); box-shadow: none; cursor: not-allowed; }
 .start-task-btn:active { transform: translateY(2px); box-shadow: none; }
 .start-task-btn i { margin-right: 8px; }
