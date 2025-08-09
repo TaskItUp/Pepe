@@ -416,3 +416,4 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeApp(null);
     }
 });
+
