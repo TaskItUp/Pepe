@@ -136,6 +136,10 @@
                     <p><i class="fas fa-users icon-left"></i> Total Referrals</p>
                     <p class="stat-value" id="total-refers">0</p>
                 </div>
+                 <div class="stat-item">
+                    <p><i class="fas fa-percent icon-left"></i> Referral Earnings</p>
+                    <p class="stat-value"><span id="referral-earnings">0</span> PEPE</p>
+                </div>
             </div>
         </div>
         
@@ -144,15 +148,15 @@
         <div id="refer-modal" class="modal-overlay">
             <div class="modal-content">
                 <button class="close-btn" onclick="closeReferModal()">&times;</button>
-                <h2 class="modal-title">Refer Friends!</h2>
-                <p class="modal-subtitle">Share your permanent referral link with friends. Your count updates automatically when they join!</p>
+                <h2 class="modal-title">Refer Friends & Earn!</h2>
+                <p class="modal-subtitle">Share your permanent link. You'll get instant credit and earn 10% of their task earnings!</p>
                 <div class="referral-link-container">
                     <input type="text" id="referral-link" value="Your permanent link..." readonly>
                     <button onclick="copyReferralLink(this)"><i class="fas fa-copy"></i></button>
                 </div>
                 <div class="referral-stats">
                     <p><strong><span id="refer-count">0</span></strong> Referrals</p>
-                    <p><em>(10% commission feature unavailable)</em></p>
+                    <p><strong><span id="modal-refer-earnings">0</span> PEPE</strong> Earned</p>
                 </div>
             </div>
         </div>
