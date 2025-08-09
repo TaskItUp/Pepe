@@ -1,17 +1,17 @@
 // --- [DATABASE & APP INITIALIZATION] ---
 
-// YOUR PERSONAL FIREBASE CONFIGURATION IS NOW INCLUDED
+// Your Firebase config
 const firebaseConfig = {
-  apiKey: "AIzaSyB1TYSc2keBepN_cMV9oaoHFRdcJaAqG_g",
-  authDomain: "taskup-9ba7b.firebaseapp.com",
-  projectId: "taskup-9ba7b",
-  storageBucket: "taskup-9ba7b.appspot.com",
-  messagingSenderId: "319481101196",
-  appId: "1:319481101196:web:6cded5be97620d98d974a9",
-  measurementId: "G-JNNLG1E49L"
+    apiKey: "AIzaSyB1TYSc2keBepN_cMV9oaoHFRdcJaAqG_g",
+    authDomain: "taskup-9ba7b.firebaseapp.com",
+    projectId: "taskup-9ba7b",
+    storageBucket: "taskup-9ba7b.appspot.com",
+    messagingSenderId: "319481101196",
+    appId: "1:319481101196:web:6cded5be97620d98d974a9",
+    measurementId: "G-JNNLG1E49L"
 };
 
-// Initialize Firebase using the compat libraries
+// Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
@@ -25,23 +25,38 @@ const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
 const REFERRAL_COMMISSION_RATE = 0.10;
 const WITHDRAWAL_MINIMUMS = {
-    binancepay: 10000 
+    binancepay: 10000
 };
 
-// --- [CORE APP LOGIC] ---
+// --- [TELEGRAM INITIALIZATION] ---
+document.addEventListener("DOMContentLoaded", () => {
+    if (window.Telegram && window.Telegram.WebApp) {
+        Telegram.WebApp.ready();
+        const initData = Telegram.WebApp.initDataUnsafe;
 
-function initializeApp(tgUser) {
+        console.log("Telegram init data:", initData);
+
+        const tgUser = initData?.user || null;
+        const startParamId = initData?.start_param ? initData.start_param.toString() : null;
+
+        initializeApp(tgUser, startParamId);
+    } else {
+        console.warn("Telegram WebApp not detected. Running in test mode.");
+        initializeApp(null, null); // test mode
+    }
+});
+
+// --- [CORE APP LOGIC] ---
+function initializeApp(tgUser, startParamId) {
     telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
 
     console.log(`Initializing app for User ID: ${telegramUserId}`);
     const userRef = db.collection('users').doc(telegramUserId);
 
-    // --- FIX: Always detect referral ID ---
     const urlRefId = new URLSearchParams(window.location.search).get('ref');
-    const startParamId = tgUser?.start_param ? tgUser.start_param.toString() : null;
     const referrerId = startParamId || urlRefId || null;
 
-    // Use onSnapshot for REAL-TIME updates to the user's own data.
+    // Real-time updates
     userRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
             console.log('New user detected. Creating account...');
@@ -61,7 +76,7 @@ function initializeApp(tgUser) {
                 referralEarnings: 0
             };
 
-            // --- FIXED: Transactional referral creation ---
+            // Transaction for referral credit
             if (referrerId) {
                 const referrerRef = db.collection('users').doc(referrerId);
                 try {
@@ -96,7 +111,6 @@ function initializeApp(tgUser) {
             isInitialized = true;
         }
         updateUI();
-
     }, (error) => console.error("Error listening to user document:", error));
 }
 
@@ -108,7 +122,9 @@ function getFakeUserIdForTesting() {
     return newId;
 }
 
-function generatePlaceholderAvatar(userId) { return `https://i.pravatar.cc/150?u=${userId}`; }
+function generatePlaceholderAvatar(userId) {
+    return `https://i.pravatar.cc/150?u=${userId}`;
+}
 
 function updateUI() {
     const balanceString = Math.floor(userState.balance || 0).toLocaleString();
@@ -147,6 +163,3 @@ function updateUI() {
         if (taskCard) taskCard.classList.add('completed');
     });
 }
-
-// The rest of your original code remains the same
-// ...
