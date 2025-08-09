@@ -13,7 +13,7 @@
 </head>
 <body>
 
-    <!-- Loading Container - Handles account creation -->
+    <!-- Loading Container - Shown on startup -->
     <div id="loading-container">
         <div class="spinner"></div>
         <p id="loading-text">Loading App...</p>
@@ -145,16 +145,7 @@
             <div class="modal-content">
                 <button class="close-btn" onclick="closeReferModal()">&times;</button>
                 <h2 class="modal-title">Refer Friends!</h2>
-
-                <!-- Claim Button Section -->
-                <div id="claim-section" style="display: none;">
-                    <p id="claim-text" class="claim-text">You have new referrals!</p>
-                    <button id="claim-button" class="claim-button" onclick="claimReferrals()">
-                        <i class="fas fa-gift"></i> Claim Now
-                    </button>
-                </div>
-                
-                <p class="modal-subtitle">Share your permanent referral link. Claim your rewards here when they join!</p>
+                <p class="modal-subtitle">Share your permanent referral link with friends. Your count updates automatically when they join!</p>
                 <div class="referral-link-container">
                     <input type="text" id="referral-link" value="Your permanent link..." readonly>
                     <button onclick="copyReferralLink(this)"><i class="fas fa-copy"></i></button>
