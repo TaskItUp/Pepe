@@ -21,7 +21,6 @@ const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
 
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
-const REFERRAL_COMMISSION_RATE = 0.10;
 const WITHDRAWAL_MINIMUMS = {
     binancepay: 10000
 };
@@ -185,21 +184,6 @@ function updateUI() {
     if (profileLinkInput) profileLinkInput.value = referralLink;
 }
 
-// --- [REFERRAL COMMISSION] ---
-async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy) return;
-
-    const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
-    if (commissionAmount <= 0) return;
-
-    const referrerRef = db.collection('users').doc(userState.referredBy);
-
-    return referrerRef.update({
-        balance: firebase.firestore.FieldValue.increment(commissionAmount),
-        referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-    }).catch(error => console.error("Failed to pay commission:", error));
-}
-
 // --- [TASK HANDLERS] ---
 function setupTaskButtonListeners() {
     document.querySelectorAll('.task-card').forEach(card => {
@@ -235,7 +219,6 @@ async function handleVerifyClick(taskId, reward) {
             totalEarned: firebase.firestore.FieldValue.increment(reward),
             joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId)
         });
-        await payReferralCommission(reward);
         alert(`Verification successful! You've earned ${reward} PEPE.`);
     } catch (error) {
         console.error("Error rewarding user for channel join:", error);
@@ -290,7 +273,6 @@ window.completeAdTask = async function () {
             lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
 
-        await payReferralCommission(AD_REWARD);
         alert(`Success! ${AD_REWARD} PEPE has been added to your balance.`);
     } catch (error) {
         console.error("An error occurred during the ad task:", error);
