@@ -144,15 +144,15 @@
         <div id="refer-modal" class="modal-overlay">
             <div class="modal-content">
                 <button class="close-btn" onclick="closeReferModal()">&times;</button>
-                <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
-                <p class="modal-subtitle">Share this unique link with your friends. When they join, you'll get credit instantly!</p>
+                <h2 class="modal-title">Refer Friends!</h2>
+                <p class="modal-subtitle">Share this unique link with your friends. Your referral count will update instantly when they join.</p>
                 <div class="referral-link-container">
                     <input type="text" id="referral-link" value="Generating..." readonly>
                     <button onclick="copyReferralLink(this)" disabled><i class="fas fa-copy"></i></button>
                 </div>
                 <div class="referral-stats">
                     <p><strong><span id="refer-count">0</span></strong> Referrals</p>
-                    <p><strong><span id="refer-earnings">0</span> PEPE</strong> Earned</p>
+                    <p><em>(10% commission feature is disabled)</em></p>
                 </div>
             </div>
         </div>
@@ -170,7 +170,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
+
