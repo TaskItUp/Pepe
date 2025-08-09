@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!userDoc.exists) {
             const referrerId = tg.initDataUnsafe.start_param || null;
-            const newUser = {
+            await userRef.set({
                 id: user.id,
                 username: user.username || 'N/A',
                 firstName: user.first_name,
@@ -49,8 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 withdrawalTotal: 0,
                 referrer: referrerId,
                 createdAt: firebase.firestore.Timestamp.now()
-            };
-            await userRef.set(newUser);
+            });
             if (referrerId) {
                 const referrerRef = db.collection('users').doc(referrerId);
                 await referrerRef.update({ referrals: firebase.firestore.FieldValue.increment(1) }).catch(console.error);
@@ -71,21 +70,20 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // --- UI UPDATE FUNCTION ---
     function updateUI(userData) {
-        const { balance, adsWatchedToday, totalAdsEver, lastAdReset, completedTasks, referrals, referralEarnings, withdrawalTotal, firstName, username, id } = userData;
+        const { balance, adsWatchedToday, lastAdReset, completedTasks, totalAdsEver, referrals, referralEarnings, withdrawalTotal, firstName, username, id } = userData;
 
-        // Check for daily ad reset
+        let currentAdsWatched = adsWatchedToday;
         const now = new Date();
         const lastResetDate = lastAdReset.toDate();
-        let currentAdsWatched = adsWatchedToday;
         if ((now - lastResetDate) / 3600000 >= 24) {
             currentAdsWatched = 0;
             db.collection('users').doc(String(id)).update({ adsWatchedToday: 0, lastAdReset: firebase.firestore.Timestamp.now() });
         }
         
         const adsLeft = DAILY_AD_LIMIT - currentAdsWatched;
-
-        // Update balances across all tabs
         const formattedBalance = Math.floor(balance).toLocaleString();
+
+        // Balances
         document.getElementById('balance-home').textContent = formattedBalance;
         document.getElementById('withdraw-balance').textContent = formattedBalance;
         document.getElementById('profile-balance').textContent = formattedBalance;
@@ -93,32 +91,29 @@ document.addEventListener('DOMContentLoaded', () => {
         // Home Tab
         document.getElementById('home-username').textContent = firstName;
         document.getElementById('ads-watched-today').textContent = currentAdsWatched;
-        document.getElementById('ads-left-today').textContent = adsLeft;
+        document.getElementById('ads-left-today').textContent = adsLeft > 0 ? adsLeft : 0;
         
-        // Bonus Task Card
+        // Bonus Task
         const channelTaskCard = document.getElementById('task-channel-join');
-        if (completedTasks.includes('channel_1')) {
+        if (completedTasks && completedTasks.includes('channel_1')) {
             channelTaskCard.classList.add('completed');
         }
 
         // Earn Tab
         document.getElementById('tasks-completed').textContent = currentAdsWatched;
-        const progressPercent = (currentAdsWatched / DAILY_AD_LIMIT) * 100;
-        document.getElementById('task-progress-bar').style.width = `${progressPercent}%`;
+        document.getElementById('task-progress-bar').style.width = `${(currentAdsWatched / DAILY_AD_LIMIT) * 100}%`;
         const watchAdBtn = document.getElementById('start-task-button');
         watchAdBtn.disabled = adsLeft <= 0;
-        if(watchAdBtn.disabled) watchAdBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Daily Limit Reached';
-        else watchAdBtn.innerHTML = '<i class="fas fa-play-circle"></i> Watch Ad';
+        watchAdBtn.innerHTML = watchAdBtn.disabled ? '<i class="fas fa-stop-circle"></i> Daily Limit Reached' : '<i class="fas fa-play-circle"></i> Watch Ad';
         
         // Profile Tab
         document.getElementById('profile-name').textContent = firstName;
         document.getElementById('telegram-username').textContent = `@${username}`;
-        const totalEarned = balance + withdrawalTotal;
-        document.getElementById('earned-so-far').textContent = Math.floor(totalEarned).toLocaleString();
+        document.getElementById('earned-so-far').textContent = Math.floor(balance + withdrawalTotal).toLocaleString();
         document.getElementById('total-ads-viewed').textContent = totalAdsEver;
         document.getElementById('total-refers').textContent = referrals;
 
-        // Referral Modal & Links
+        // Referral
         const referralLink = `https://t.me/TaskItUpBot?start=${id}`;
         document.getElementById('profile-referral-link').value = referralLink;
         document.getElementById('referral-link-modal').value = referralLink;
@@ -137,25 +132,25 @@ document.addEventListener('DOMContentLoaded', () => {
             const w = doc.data();
             const date = w.createdAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             const item = document.createElement('div');
-            item.className = `history-item ${w.status}`; // 'pending' or 'completed'
+            item.className = `history-item ${w.status}`;
             item.innerHTML = `
                 <div class="history-details">
                     <p class="history-amount">${w.amount.toLocaleString()} PEPE</p>
-                    <p class="history-date">${date}</p>
+                    <p class="history-date">${date} - ${w.address}</p>
                 </div>
-                <div class="history-status ${w.status}">${w.status.charAt(0).toUpperCase() + w.status.slice(1)}</div>
-            `;
+                <div class="history-status ${w.status}">${w.status.charAt(0).toUpperCase() + w.status.slice(1)}</div>`;
             historyList.appendChild(item);
         });
     }
 
-    // --- EVENT LISTENERS & HANDLERS ---
+    // --- EVENT LISTENERS ---
     
     // Tab Navigation
     document.querySelector('.nav-bar').addEventListener('click', (e) => {
         const navItem = e.target.closest('.nav-item');
         if (!navItem) return;
         
+        e.preventDefault();
         document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
         navItem.classList.add('active');
         
@@ -163,31 +158,27 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById(navItem.dataset.tab).classList.add('active');
     });
 
-    // Bonus Task Logic
+    // Bonus Task
     const channelTaskCard = document.getElementById('task-channel-join');
-    const joinBtn = channelTaskCard.querySelector('.join-btn');
-    const verifyBtn = channelTaskCard.querySelector('.verify-btn');
-    
-    joinBtn.addEventListener('click', () => {
+    channelTaskCard.querySelector('.join-btn').addEventListener('click', () => {
         window.open(channelTaskCard.dataset.url, '_blank');
-        verifyBtn.disabled = false;
+        channelTaskCard.querySelector('.verify-btn').disabled = false;
     });
-
-    verifyBtn.addEventListener('click', async () => {
+    channelTaskCard.querySelector('.verify-btn').addEventListener('click', async (e) => {
         const userRef = db.collection('users').doc(String(currentUser.id));
         const doc = await userRef.get();
         if (doc.data().completedTasks.includes('channel_1')) return;
 
+        e.target.disabled = true;
         await userRef.update({
             balance: firebase.firestore.FieldValue.increment(Number(channelTaskCard.dataset.reward)),
             completedTasks: firebase.firestore.FieldValue.arrayUnion('channel_1')
         });
-        tg.showPopup({ title: 'Success!', message: `+${channelTaskCard.dataset.reward} PEPE has been added to your balance.` });
-        verifyBtn.disabled = true;
+        tg.showPopup({ title: 'Success!', message: `+${channelTaskCard.dataset.reward} PEPE has been added.` });
     });
 
-    // Earn Tab Logic
-    document.getElementById('start-task-button').addEventListener('click', async () => {
+    // Earn Ad Task
+    document.getElementById('start-task-button').addEventListener('click', () => {
         const watchAdBtn = document.getElementById('start-task-button');
         watchAdBtn.disabled = true;
         tg.HapticFeedback.impactOccurred('light');
@@ -195,71 +186,59 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(async () => {
             const userRef = db.collection('users').doc(String(currentUser.id));
             try {
-                await db.runTransaction(async (transaction) => {
-                    const userDoc = await transaction.get(userRef);
-                    if (!userDoc.exists) throw "User not found!";
-                    const userData = userDoc.data();
-                    if (userData.adsWatchedToday >= DAILY_AD_LIMIT) throw "Daily ad limit reached.";
+                await db.runTransaction(async (t) => {
+                    const doc = await t.get(userRef);
+                    if (!doc.exists) throw "User not found!";
+                    if (doc.data().adsWatchedToday >= DAILY_AD_LIMIT) throw "Daily ad limit reached.";
                     
-                    transaction.update(userRef, {
+                    t.update(userRef, {
                         balance: firebase.firestore.FieldValue.increment(AD_REWARD),
                         adsWatchedToday: firebase.firestore.FieldValue.increment(1),
                         totalAdsEver: firebase.firestore.FieldValue.increment(1)
                     });
                     
-                    if (userData.referrer) {
-                        const referrerRef = db.collection('users').doc(userData.referrer);
-                        const commission = AD_REWARD * 0.10;
-                        transaction.update(referrerRef, {
-                            balance: firebase.firestore.FieldValue.increment(commission),
-                            referralEarnings: firebase.firestore.FieldValue.increment(commission)
+                    if (doc.data().referrer) {
+                        const referrerRef = db.collection('users').doc(doc.data().referrer);
+                        t.update(referrerRef, {
+                            balance: firebase.firestore.FieldValue.increment(AD_REWARD * 0.10),
+                            referralEarnings: firebase.firestore.FieldValue.increment(AD_REWARD * 0.10)
                         });
                     }
                 });
                 tg.HapticFeedback.notificationOccurred('success');
-            } catch (e) {
-                tg.showPopup({ title: 'Error', message: String(e) });
+            } catch (err) {
+                tg.showPopup({ title: 'Error', message: String(err) });
                 tg.HapticFeedback.notificationOccurred('error');
             }
         }, 2000);
     });
 
-    // Withdrawal Logic
+    // Withdrawal
     document.getElementById('submit-withdrawal-button').addEventListener('click', async () => {
         const amount = parseInt(document.getElementById('withdraw-amount').value);
         const address = document.getElementById('wallet-id').value.trim();
         const MIN_WITHDRAW = 10000;
 
-        if (!amount || !address) {
-            return tg.showPopup({ title: 'Error', message: 'Please fill in all withdrawal fields.' });
-        }
-        if (amount < MIN_WITHDRAW) {
-            return tg.showPopup({ title: 'Error', message: `Minimum withdrawal is ${MIN_WITHDRAW.toLocaleString()} PEPE.` });
-        }
+        if (!amount || !address) return tg.showPopup({ title: 'Error', message: 'Please fill all fields.' });
+        if (amount < MIN_WITHDRAW) return tg.showPopup({ title: 'Error', message: `Minimum withdrawal is ${MIN_WITHDRAW.toLocaleString()} PEPE.` });
 
         const userRef = db.collection('users').doc(String(currentUser.id));
         try {
-            await db.runTransaction(async (transaction) => {
-                const userDoc = await transaction.get(userRef);
-                if (!userDoc.exists) throw new Error("User not found.");
-                if (userDoc.data().balance < amount) throw new Error("Insufficient balance.");
+            await db.runTransaction(async (t) => {
+                const doc = await t.get(userRef);
+                if (!doc.exists) throw new Error("User not found.");
+                if (doc.data().balance < amount) throw new Error("Insufficient balance.");
                 
-                transaction.update(userRef, { 
+                t.update(userRef, { 
                     balance: firebase.firestore.FieldValue.increment(-amount),
                     withdrawalTotal: firebase.firestore.FieldValue.increment(amount) 
                 });
 
-                const withdrawalRef = db.collection('withdrawals').doc();
-                transaction.set(withdrawalRef, {
-                    userId: currentUser.id,
-                    username: currentUser.username,
-                    amount: amount,
-                    address: address,
-                    status: 'pending',
-                    createdAt: firebase.firestore.Timestamp.now()
+                t.set(db.collection('withdrawals').doc(), {
+                    userId: currentUser.id, username: currentUser.username, amount, address, status: 'pending', createdAt: firebase.firestore.Timestamp.now()
                 });
             });
-            tg.showPopup({ title: 'Success!', message: 'Your withdrawal request is pending.' });
+            tg.showPopup({ title: 'Success!', message: 'Withdrawal request submitted.' });
             document.getElementById('withdraw-amount').value = '';
             document.getElementById('wallet-id').value = '';
         } catch (e) {
@@ -267,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Modal and Copy Logic
+    // Modal & Copy
     const referModal = document.getElementById('refer-modal');
     document.getElementById('refer-fab').addEventListener('click', () => referModal.style.display = 'flex');
     document.getElementById('close-modal-btn').addEventListener('click', () => referModal.style.display = 'none');
@@ -281,10 +260,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    document.getElementById('copy-profile-link-btn').addEventListener('click', (e) => {
-        copyToClipboard(document.getElementById('profile-referral-link').value, e.currentTarget);
-    });
-    document.getElementById('copy-modal-link-btn').addEventListener('click', (e) => {
-        copyToClipboard(document.getElementById('referral-link-modal').value, e.currentTarget);
-    });
+    document.getElementById('copy-profile-link-btn').addEventListener('click', e => copyToClipboard(document.getElementById('profile-referral-link').value, e.currentTarget));
+    document.getElementById('copy-modal-link-btn').addEventListener('click', e => copyToClipboard(document.getElementById('referral-link-modal').value, e.currentTarget));
 });
