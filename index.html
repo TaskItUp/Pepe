@@ -1,32 +1,37 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TaskItUp</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskItUp</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+<style>
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.bottom-nav { display: flex; justify-content: space-around; position: fixed; bottom: 0; width: 100%; background: #fff; border-top: 1px solid #ccc; }
+.nav-item { flex: 1; text-align: center; padding: 10px; cursor: pointer; }
+.nav-item.active { background: #eee; }
+</style>
 </head>
 <body>
 
-<!-- Home Tab -->
+<!-- HOME -->
 <div id="home-tab" class="tab-content active">
     <div class="header">
         <img src="" alt="Profile" class="profile-pic">
         <h2 id="home-username">User</h2>
         <p>Balance: <span id="balance-home">0</span> PEPE</p>
     </div>
-    <div class="task-section">
-        <p>Tasks Completed Today: <span id="ads-watched-today">0</span></p>
-        <p>Tasks Left Today: <span id="ads-left-today">0</span></p>
-        <div class="progress-bar"><div id="task-progress-bar"></div></div>
-        <button id="start-task-button" onclick="completeAdTask()">Watch Ad</button>
-    </div>
+    <p>Tasks Completed Today: <span id="ads-watched-today">0</span></p>
+    <p>Tasks Left Today: <span id="ads-left-today">0</span></p>
+    <div class="progress-bar"><div id="task-progress-bar"></div></div>
+    <button id="start-task-button" onclick="completeAdTask()">Watch Ad</button>
 </div>
 
-<!-- Tasks Tab -->
+<!-- TASKS -->
 <div id="tasks-tab" class="tab-content">
     <h2>Bonus Tasks</h2>
     <div class="task-card" id="task-1" data-task-id="1" data-url="https://example.com" data-reward="500">
@@ -36,72 +41,122 @@
     </div>
 </div>
 
-<!-- Withdraw Tab -->
+<!-- WITHDRAW -->
 <div id="withdraw-tab" class="tab-content">
     <h2>Withdraw</h2>
     <p>Your Balance: <span id="withdraw-balance">0</span> PEPE</p>
 </div>
 
-<!-- Profile Tab -->
+<!-- PROFILE -->
 <div id="profile-tab" class="tab-content">
     <div class="profile-header">
         <img src="" alt="Profile" class="profile-pic-large">
         <h2 id="profile-name">User</h2>
         <p id="telegram-username">@username</p>
     </div>
-    <div class="profile-stats">
-        <p>Total Earned: <span id="earned-so-far">0</span> PEPE</p>
-        <p>Ads Viewed: <span id="total-ads-viewed">0</span></p>
-        <p>Referrals: <span id="total-refers">0</span></p>
-    </div>
+    <p>Total Earned: <span id="earned-so-far">0</span> PEPE</p>
+    <p>Ads Viewed: <span id="total-ads-viewed">0</span></p>
+    <p>Referrals: <span id="total-refers">0</span></p>
 </div>
 
-<!-- Navigation Bar -->
+<!-- NAVBAR -->
 <nav class="bottom-nav">
     <div class="nav-item active" data-target="home-tab">
-        <i class="fas fa-home"></i>
-        <span>Home</span>
+        <i class="fas fa-home"></i><span>Home</span>
     </div>
     <div class="nav-item" data-target="tasks-tab">
-        <i class="fas fa-tasks"></i>
-        <span>Tasks</span>
+        <i class="fas fa-tasks"></i><span>Tasks</span>
     </div>
     <div class="nav-item" data-target="withdraw-tab">
-        <i class="fas fa-wallet"></i>
-        <span>Withdraw</span>
+        <i class="fas fa-wallet"></i><span>Withdraw</span>
     </div>
     <div class="nav-item" data-target="profile-tab">
-        <i class="fas fa-user"></i>
-        <span>Profile</span>
+        <i class="fas fa-user"></i><span>Profile</span>
     </div>
 </nav>
 
-<!-- Refer Modal -->
+<!-- REFER MODAL -->
 <button class="refer-fab" onclick="openReferModal()"><i class="fas fa-gift"></i></button>
-<div id="refer-modal" class="modal-overlay">
+<div id="refer-modal" class="modal-overlay" style="display:none;">
     <div class="modal-content">
-        <button class="close-btn" onclick="closeReferModal()">&times;</button>
-        <h2 class="modal-title">Refer Friends, Earn 10% More!</h2>
-        <p class="modal-subtitle">Earn a <span class="highlight">10% commission</span> from your friends' earnings!</p>
-        <div class="referral-link-container">
-            <input type="text" id="referral-link" value="" readonly>
+        <button onclick="closeReferModal()">×</button>
+        <h2>Refer Friends, Earn 10% More!</h2>
+        <div>
+            <input type="text" id="referral-link" readonly>
             <button onclick="copyReferralLink(this)"><i class="fas fa-copy"></i></button>
         </div>
-        <div class="referral-stats">
-            <p><strong><span id="refer-count">0</span></strong> Referrals</p>
-            <p><strong><span id="refer-earnings">0</span> PEPE</strong> Earned</p>
-        </div>
-        <div class="referral-requirements">
-            <h4>How a referral is counted:</h4>
-            <ul>
-                <li><i class="fas fa-check-circle"></i> Your friend must join using your unique link.</li>
-                <li><i class="fas fa-check-circle"></i> Your referral count increases instantly when they join.</li>
-            </ul>
-        </div>
+        <p><strong><span id="refer-count">0</span></strong> Referrals</p>
+        <p><strong><span id="refer-earnings">0</span> PEPE</strong> Earned</p>
     </div>
 </div>
 
-<script src="script.js"></script>
+<script>
+/* FIREBASE INIT */
+firebase.initializeApp({
+    apiKey: "AIzaSyB1TYSc2keBepN_cMV9oaoHFRdcJaAqG_g",
+    authDomain: "taskup-9ba7b.firebaseapp.com",
+    projectId: "taskup-9ba7b",
+    storageBucket: "taskup-9ba7b.appspot.com",
+    messagingSenderId: "319481101196",
+    appId: "1:319481101196:web:6cded5be97620d98d974a9"
+});
+const db = firebase.firestore();
+
+let userState = {};
+let telegramUserId = null;
+const BOT_USERNAME = "TaskItUpBot";
+
+/* NAVBAR LOGIC */
+document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        item.classList.add('active');
+        let target = item.getAttribute('data-target');
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.getElementById(target).classList.add('active');
+    });
+});
+
+/* LOAD TELEGRAM USER */
+function initUser() {
+    let tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    if (tgUser) {
+        telegramUserId = tgUser.id.toString();
+        updateUserUI(tgUser.first_name + (tgUser.last_name ? " " + tgUser.last_name : ""), "@" + (tgUser.username || tgUser.id));
+    } else {
+        telegramUserId = localStorage.getItem("localUserId") || "test_" + Date.now();
+        localStorage.setItem("localUserId", telegramUserId);
+        updateUserUI("Guest", "@guest");
+    }
+}
+
+/* UPDATE UI */
+function updateUserUI(name, username) {
+    document.getElementById("home-username").textContent = name;
+    document.getElementById("profile-name").textContent = name;
+    document.getElementById("telegram-username").textContent = username;
+}
+
+/* REFERRAL MODAL */
+function openReferModal() {
+    document.getElementById("referral-link").value = `https://t.me/${BOT_USERNAME}?start=${telegramUserId}`;
+    document.getElementById("refer-modal").style.display = "flex";
+}
+function closeReferModal() {
+    document.getElementById("refer-modal").style.display = "none";
+}
+function copyReferralLink(btn) {
+    let link = document.getElementById("referral-link").value;
+    navigator.clipboard.writeText(link);
+    btn.innerHTML = "✓";
+    setTimeout(() => btn.innerHTML = '<i class="fas fa-copy"></i>', 1500);
+}
+
+/* START APP */
+document.addEventListener("DOMContentLoaded", () => {
+    initUser();
+});
+</script>
+
 </body>
 </html>
-
