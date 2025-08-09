@@ -1,3 +1,15 @@
+// This listener is triggered WHEN a user sends the /start command
+bot.onText(/\/start/, (msg) => {
+  // All the code inside here runs ONLY AFTER the user clicks "Start".
+  
+  const chatId = msg.chat.id;
+  const welcomeMessage = '...';
+  const options = { /* ... button setup ... */ };
+
+  bot.sendMessage(chatId, welcomeMessage, options);
+});
+
+
 // --- [DATABASE & APP INITIALIZATION] ---
 
 // YOUR PERSONAL FIREBASE CONFIGURATION
@@ -447,3 +459,4 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeApp(null); 
     }
 });
+
