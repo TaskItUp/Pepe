@@ -126,10 +126,3 @@ body { font-family: 'Poppins', sans-serif; background-color: var(--background-co
 .history-item.completed { border-left-color: var(--secondary-color); }
 .history-status.pending { background-color: var(--accent-color); }
 .history-status.completed { background-color: var(--secondary-color); }
-
-/* --- Claim Button Styles --- */
-#claim-section { border: 1px dashed var(--accent-color); border-radius: 12px; padding: 15px; text-align: center; margin-bottom: 20px; background-color: #fffbeb; }
-.claim-text { font-weight: 500; margin-bottom: 10px; color: #92400e; }
-.claim-button { width: 100%; padding: 12px; font-size: 1rem; font-weight: 600; background: var(--accent-color); color: white; border: none; border-radius: 10px; cursor: pointer; transition: background-color 0.2s ease; }
-.claim-button:disabled { background-color: #ccc; cursor: not-allowed; }
-.claim-button .fa-gift { margin-right: 8px; }
