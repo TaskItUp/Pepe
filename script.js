@@ -1,5 +1,4 @@
-// --- [DATABASE & APP INITIALIZATION] ---
-// ✅ Your Firebase configuration
+// ---------- CONFIG & INIT ----------
 const firebaseConfig = {
     apiKey: "AIzaSyB1TYSc2keBepN_cMV9oaoHFRdcJaAqG_g",
     authDomain: "taskup-9ba7b.firebaseapp.com",
@@ -10,41 +9,119 @@ const firebaseConfig = {
     measurementId: "G-JNNLG1E49L"
 };
 
-// Initialize Firebase (compat)
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// --- [GLOBAL STATE & CONSTANTS] ---
-let userState = {};
-let telegramUserId = null;
-let isInitialized = false;
-const TELEGRAM_BOT_USERNAME = "TaskItUpBot";
-
+// App constants
+const TELEGRAM_BOT_USERNAME = "TaskItUpBot"; // update if needed
 const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
 const REFERRAL_COMMISSION_RATE = 0.10;
-const WITHDRAWAL_MINIMUMS = {
-    binancepay: 10000
-};
+const WITHDRAWAL_MINIMUMS = { binancepay: 10000 };
 
-// --- [APP INITIALIZATION] ---
-function initializeApp(tgUser) {
-    telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
-    console.log(`Initializing app for User ID: ${telegramUserId}`);
+let telegramUserId = null;
+let userState = null;
+let isInitialized = false;
+
+// ---------- UTIL ----------
+function getFakeUserIdForTesting() {
+    let id = localStorage.getItem('localAppUserId');
+    if (!id) {
+        id = 'local_test_' + Date.now().toString(36);
+        localStorage.setItem('localAppUserId', id);
+    }
+    return id;
+}
+function generatePlaceholderAvatar(userId) {
+    return `https://i.pravatar.cc/150?u=${encodeURIComponent(userId)}`;
+}
+function formatNumber(n) {
+    return Math.floor(n || 0).toLocaleString();
+}
+
+// ---------- UI UPDATES ----------
+function updateUI() {
+    if (!userState) return;
+
+    // Basics
+    document.getElementById('home-username').textContent = userState.username || 'User';
+    document.getElementById('profile-name').textContent = userState.username || 'User';
+    document.getElementById('telegram-username').textContent = userState.telegramUsername || '@unknown';
+
+    const bal = formatNumber(userState.balance);
+    document.getElementById('balance-home').textContent = bal;
+    document.getElementById('withdraw-balance').textContent = bal;
+    document.getElementById('profile-balance').textContent = bal;
+
+    // Tasks & progress
+    const completed = userState.tasksCompletedToday || 0;
+    document.getElementById('ads-watched-today').textContent = completed;
+    document.getElementById('ads-left-today').textContent = Math.max(DAILY_TASK_LIMIT - completed, 0);
+    document.getElementById('tasks-completed').textContent = `${completed} / ${DAILY_TASK_LIMIT}`;
+    document.getElementById('task-progress-bar').style.width = `${(completed / DAILY_TASK_LIMIT) * 100}%`;
+    document.getElementById('start-task-button').disabled = completed >= DAILY_TASK_LIMIT;
+    document.getElementById('start-task-button').innerHTML = completed >= DAILY_TASK_LIMIT
+        ? '<i class="fas fa-check-circle"></i> All tasks done'
+        : '<i class="fas fa-play-circle"></i> Watch Ad';
+
+    // Stats
+    document.getElementById('earned-so-far').textContent = formatNumber(userState.totalEarned);
+    document.getElementById('total-ads-viewed').textContent = (userState.totalAdsViewed || 0);
+    document.getElementById('total-refers').textContent = (userState.totalRefers || 0);
+    document.getElementById('refer-count').textContent = (userState.totalRefers || 0);
+    document.getElementById('refer-earnings').textContent = formatNumber(userState.referralEarnings);
+
+    // avatars
+    document.querySelectorAll('#home-profile-pic, #profile-pic-large').forEach(img => {
+        if (img) img.src = userState.profilePicUrl || generatePlaceholderAvatar(telegramUserId);
+    });
+
+    // Referral link(s)
+    const referralLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${telegramUserId}`;
+    const modalInput = document.getElementById('referral-link');
+    const profileInput = document.getElementById('profile-referral-link');
+    if (modalInput) modalInput.value = referralLink;
+    if (profileInput) profileInput.value = referralLink;
+
+    // mark completed bonus tasks visually
+    const joined = userState.joinedBonusTasks || [];
+    document.querySelectorAll('.task-card').forEach(card => {
+        const taskId = card.dataset.taskId;
+        if (joined.includes(taskId)) {
+            card.classList.add('completed');
+        } else {
+            card.classList.remove('completed');
+            const verifyBtn = card.querySelector('.verify-btn');
+            if (verifyBtn) verifyBtn.disabled = true;
+        }
+    });
+}
+
+// ---------- REFERRAL / USER CREATION ----------
+/*
+Flow:
+- Determine telegramUserId (Telegram WebApp or local test).
+- Listen on users/doc for realtime updates.
+- If doc doesn't exist -> create it. If start_param exists and is a valid referrer id and not the same as this user:
+    - transactionally increment referrer's totalRefers (create minimal referrer doc if missing).
+    - set new user doc with referredBy.
+- onSnapshot will then provide userState to update UI.
+*/
+async function initializeApp(tgUser) {
+    telegramUserId = tgUser ? String(tgUser.id) : getFakeUserIdForTesting();
+    console.log('Initializing app for', telegramUserId);
 
     const userRef = db.collection('users').doc(telegramUserId);
 
     userRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
-            console.log('New user detected.');
+            // NEW USER: build baseline fields
+            const startParam = window.Telegram?.WebApp?.initDataUnsafe?.start_param || null;
+            const referredBy = (startParam && startParam !== telegramUserId) ? String(startParam) : null;
 
-            // ✅ Correct way to get referral ID (Telegram WebApp puts start_param inside initDataUnsafe)
-            const referrerId = window.Telegram?.WebApp?.initDataUnsafe?.start_param || null;
-            console.log(`DEBUG: Referrer ID from Telegram link: ${referrerId}`);
-
-            const newUserState = {
-                username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "User",
-                telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : `@test_user`,
+            const baseUser = {
+                username: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() || `User` : `User`,
+                telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : `@local_test`,
                 profilePicUrl: generatePlaceholderAvatar(telegramUserId),
                 balance: 0,
                 tasksCompletedToday: 0,
@@ -52,154 +129,137 @@ function initializeApp(tgUser) {
                 totalEarned: 0,
                 totalAdsViewed: 0,
                 totalRefers: 0,
+                referralEarnings: 0,
                 joinedBonusTasks: [],
-                referredBy: referrerId && referrerId !== telegramUserId ? referrerId : null,
-                referralEarnings: 0
+                referredBy: referredBy // may be null
             };
 
-            userState = newUserState;
-
-            if (referrerId && referrerId !== telegramUserId) {
-                const referrerRef = db.collection('users').doc(referrerId);
-                try {
-                    await db.runTransaction(async (transaction) => {
-                        const refDoc = await transaction.get(referrerRef);
+            try {
+                if (referredBy) {
+                    // Use transaction: if referrer exists increment, else create a minimal referrer doc
+                    const referrerRef = db.collection('users').doc(referredBy);
+                    await db.runTransaction(async (tx) => {
+                        const refDoc = await tx.get(referrerRef);
                         if (refDoc.exists) {
-                            transaction.update(referrerRef, {
+                            tx.update(referrerRef, {
                                 totalRefers: firebase.firestore.FieldValue.increment(1)
                             });
+                        } else {
+                            // If referrer doc doesn't exist, create a minimal profile so they still get the refer count
+                            tx.set(referrerRef, {
+                                username: `@${referredBy}`,
+                                telegramUsername: `@${referredBy}`,
+                                profilePicUrl: generatePlaceholderAvatar(referredBy),
+                                balance: 0,
+                                tasksCompletedToday: 0,
+                                lastTaskTimestamp: null,
+                                totalEarned: 0,
+                                totalAdsViewed: 0,
+                                totalRefers: 1,
+                                referralEarnings: 0,
+                                joinedBonusTasks: [],
+                                referredBy: null
+                            });
                         }
-                        transaction.set(userRef, newUserState);
+                        // create the new user doc only after we've handled the referrer increment
+                        tx.set(userRef, baseUser);
                     });
-                    console.log("Referral transaction completed.");
-                } catch (err) {
-                    console.error("Referral transaction failed:", err);
-                    newUserState.referredBy = null;
-                    await userRef.set(newUserState);
+                } else {
+                    // No referrer — simple create
+                    await userRef.set(baseUser);
                 }
-            } else {
-                await userRef.set(newUserState);
+                console.log('New user created successfully.');
+            } catch (err) {
+                console.error('Error creating user or handling referral:', err);
+                // fallback: ensure user doc exists even if transaction failed
+                try { await userRef.set(baseUser); } catch (e) { console.error('Fallback creation failed', e); }
             }
-        } else {
-            userState = doc.data();
+            return; // next snapshot will fire with doc.exists true
         }
 
+        // Existing user doc: keep live state
+        userState = doc.data();
         if (!isInitialized) {
+            // bind UI handlers once
             setupTaskButtonListeners();
             listenForWithdrawalHistory();
             isInitialized = true;
         }
         updateUI();
     }, (err) => {
-        console.error("Error listening to user doc:", err);
+        console.error('Listening to user doc failed:', err);
     });
 }
 
-// --- [HELPERS] ---
-function getFakeUserIdForTesting() {
-    let storedId = localStorage.getItem('localAppUserId');
-    if (storedId) return storedId;
-    const newId = 'test_user_' + Date.now().toString(36);
-    localStorage.setItem('localAppUserId', newId);
-    return newId;
-}
-function generatePlaceholderAvatar(userId) {
-    return `https://i.pravatar.cc/150?u=${userId}`;
-}
-
-// --- [UI UPDATE] ---
-function updateUI() {
-    if (!userState) return;
-
-    const balanceString = Math.floor(userState.balance || 0).toLocaleString();
-    const totalEarnedString = Math.floor(userState.totalEarned || 0).toLocaleString();
-    const referralEarningsString = (userState.referralEarnings || 0).toLocaleString();
-    const totalRefersString = (userState.totalRefers || 0).toLocaleString();
-
-    document.querySelectorAll('.profile-pic, .profile-pic-large').forEach(img => {
-        if (userState.profilePicUrl) img.src = userState.profilePicUrl;
-    });
-
-    // Basic stats
-    document.getElementById('balance-home').textContent = balanceString;
-    document.getElementById('withdraw-balance').textContent = balanceString;
-    document.getElementById('profile-balance').textContent = balanceString;
-    document.getElementById('home-username').textContent = userState.username;
-    document.getElementById('profile-name').textContent = userState.username;
-    document.getElementById('telegram-username').textContent = userState.telegramUsername;
-    document.getElementById('ads-watched-today').textContent = userState.tasksCompletedToday || 0;
-    document.getElementById('ads-left-today').textContent = DAILY_TASK_LIMIT - (userState.tasksCompletedToday || 0);
-
-    const tasksCompleted = userState.tasksCompletedToday || 0;
-    document.getElementById('tasks-completed').textContent = `${tasksCompleted} / ${DAILY_TASK_LIMIT}`;
-    document.getElementById('task-progress-bar').style.width = `${(tasksCompleted / DAILY_TASK_LIMIT) * 100}%`;
-
-    const taskButton = document.getElementById('start-task-button');
-    taskButton.disabled = tasksCompleted >= DAILY_TASK_LIMIT;
-    taskButton.innerHTML = tasksCompleted >= DAILY_TASK_LIMIT ? '<i class="fas fa-check-circle"></i> All tasks done' : '<i class="fas fa-play-circle"></i> Watch Ad';
-
-    document.getElementById('earned-so-far').textContent = totalEarnedString;
-    document.getElementById('total-ads-viewed').textContent = userState.totalAdsViewed || 0;
-    document.getElementById('total-refers').textContent = totalRefersString;
-    document.getElementById('refer-earnings').textContent = referralEarningsString;
-    document.getElementById('refer-count').textContent = totalRefersString;
-
-    // Mark joined tasks completed
-    const joinedTasks = userState.joinedBonusTasks || [];
-    joinedTasks.forEach(taskId => {
-        const taskCard = document.getElementById(`task-${taskId}`);
-        if (taskCard) taskCard.classList.add('completed');
-    });
-
-    // Populate dynamic referral link(s)
-    const referralLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${telegramUserId}`;
-    const modalLinkInput = document.getElementById('referral-link');
-    if (modalLinkInput) modalLinkInput.value = referralLink;
-    const profileLinkInput = document.getElementById('profile-referral-link');
-    if (profileLinkInput) profileLinkInput.value = referralLink;
-}
-
-// --- [REFERRAL COMMISSION] ---
+// ---------- REFERRAL COMMISSION ----------
 async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy) return;
+    if (!userState || !userState.referredBy) return;
+    const commission = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
+    if (commission <= 0) return;
 
-    const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
-    if (commissionAmount <= 0) return;
-
-    const referrerRef = db.collection('users').doc(userState.referredBy);
-
-    return referrerRef.update({
-        balance: firebase.firestore.FieldValue.increment(commissionAmount),
-        referralEarnings: firebase.firestore.FieldValue.increment(commissionAmount)
-    }).catch(error => console.error("Failed to pay commission:", error));
+    const referrerRef = db.collection('users').doc(String(userState.referredBy));
+    try {
+        // increment both balance and referralEarnings
+        await referrerRef.update({
+            balance: firebase.firestore.FieldValue.increment(commission),
+            referralEarnings: firebase.firestore.FieldValue.increment(commission)
+        });
+    } catch (err) {
+        console.error('Failed to pay referral commission:', err);
+        // If update fails because doc doesn't exist, attempt create
+        try {
+            await referrerRef.set({
+                username: `@${userState.referredBy}`,
+                telegramUsername: `@${userState.referredBy}`,
+                profilePicUrl: generatePlaceholderAvatar(userState.referredBy),
+                balance: commission,
+                tasksCompletedToday: 0,
+                lastTaskTimestamp: null,
+                totalEarned: 0,
+                totalAdsViewed: 0,
+                totalRefers: 0,
+                referralEarnings: commission,
+                joinedBonusTasks: [],
+                referredBy: null
+            }, { merge: true });
+        } catch (e) {
+            console.error('Second attempt to credit referrer failed:', e);
+        }
+    }
 }
 
-// --- [TASK HANDLERS] ---
+// ---------- TASKS (JOIN / VERIFY / ADs) ----------
 function setupTaskButtonListeners() {
     document.querySelectorAll('.task-card').forEach(card => {
         const joinBtn = card.querySelector('.join-btn');
         const verifyBtn = card.querySelector('.verify-btn');
         const taskId = card.dataset.taskId;
         const url = card.dataset.url;
-        const reward = parseInt(card.dataset.reward);
+        const reward = parseInt(card.dataset.reward || '0', 10);
 
-        if (joinBtn) joinBtn.addEventListener('click', () => handleJoinClick(taskId, url));
+        if (joinBtn) joinBtn.addEventListener('click', () => handleJoinClick(card, url));
         if (verifyBtn) verifyBtn.addEventListener('click', () => handleVerifyClick(taskId, reward));
+        // enable verify only if not joined yet
+        if (verifyBtn) verifyBtn.disabled = true;
     });
 }
 
-async function handleVerifyClick(taskId, reward) {
-    if (!userState.joinedBonusTasks) userState.joinedBonusTasks = [];
-    if (userState.joinedBonusTasks.includes(taskId)) {
-        alert("You have already completed this task.");
-        return;
-    }
+function handleJoinClick(card, url) {
+    window.open(url, '_blank');
+    alert('After joining the channel, return here and tap Verify to claim the reward.');
+    const verifyBtn = card.querySelector('.verify-btn');
+    if (verifyBtn) verifyBtn.disabled = false;
+    const joinBtn = card.querySelector('.join-btn');
+    if (joinBtn) joinBtn.disabled = true;
+}
 
-    const taskCard = document.getElementById(`task-${taskId}`);
-    const verifyButton = taskCard ? taskCard.querySelector('.verify-btn') : null;
-    if (verifyButton) {
-        verifyButton.disabled = true;
-        verifyButton.textContent = "Verifying...";
+async function handleVerifyClick(taskId, reward) {
+    if (!userState) return;
+    if (!Array.isArray(userState.joinedBonusTasks)) userState.joinedBonusTasks = [];
+
+    if (userState.joinedBonusTasks.includes(taskId)) {
+        alert('You already completed this task.');
+        return;
     }
 
     try {
@@ -209,50 +269,35 @@ async function handleVerifyClick(taskId, reward) {
             totalEarned: firebase.firestore.FieldValue.increment(reward),
             joinedBonusTasks: firebase.firestore.FieldValue.arrayUnion(taskId)
         });
+        // pay commission to referrer of THIS user
         await payReferralCommission(reward);
-        alert(`Verification successful! You've earned ${reward} PEPE.`);
-    } catch (error) {
-        console.error("Error rewarding user for channel join:", error);
-        alert("An error occurred. Please try again.");
-        if (verifyButton) {
-            verifyButton.disabled = false;
-            verifyButton.textContent = "Verify";
-        }
+        alert(`Verification successful — you earned ${reward} PEPE!`);
+    } catch (err) {
+        console.error('Error verifying task:', err);
+        alert('Verification failed. Please try again.');
     }
 }
 
-function handleJoinClick(taskId, url) {
-    const taskCard = document.getElementById(`task-${taskId}`);
-    if (!taskCard) return;
-    const joinButton = taskCard.querySelector('.join-btn');
-    const verifyButton = taskCard.querySelector('.verify-btn');
-
-    // open the channel link in a new tab
-    window.open(url, '_blank');
-    alert("After joining, return to the app and press 'Verify' to claim your reward.");
-
-    if (verifyButton) verifyButton.disabled = false;
-    if (joinButton) joinButton.disabled = true;
-}
-
-// --- [AD TASK] ---
+// AD TASK
 window.completeAdTask = async function () {
-    if (!userState || (userState.tasksCompletedToday || 0) >= DAILY_TASK_LIMIT) {
-        alert("You have completed all ad tasks for today!");
+    if (!userState) return alert('User not loaded yet.');
+    if ((userState.tasksCompletedToday || 0) >= DAILY_TASK_LIMIT) {
+        alert('You completed all ad tasks for today.');
         return;
     }
 
     const taskButton = document.getElementById('start-task-button');
-    try {
-        taskButton.disabled = true;
-        taskButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Ad...';
+    taskButton.disabled = true;
+    const originalHTML = taskButton.innerHTML;
+    taskButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading Ad...';
 
-        // Show ad via your ad SDK (as in original)
+    try {
+        // simulate ad or call SDK
         if (typeof window.show_9685198 === 'function') {
             await window.show_9685198();
         } else {
-            // In test/browsers without the ad SDK, simulate a small delay
-            await new Promise(res => setTimeout(res, 800));
+            // demo fallback
+            await new Promise(res => setTimeout(res, 900));
         }
 
         const userRef = db.collection('users').doc(telegramUserId);
@@ -264,52 +309,47 @@ window.completeAdTask = async function () {
             lastTaskTimestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
 
+        // Pay referrer (who referred THIS user)
         await payReferralCommission(AD_REWARD);
-        alert(`Success! ${AD_REWARD} PEPE has been added to your balance.`);
-    } catch (error) {
-        console.error("An error occurred during the ad task:", error);
-        alert("Ad could not be shown or was closed early. Please try again.");
+        alert(`Success! ${AD_REWARD} PEPE added to your balance.`);
+    } catch (err) {
+        console.error('Error during ad task:', err);
+        alert('Ad failed or was closed. Try again.');
     } finally {
-        updateUI();
+        taskButton.disabled = false;
+        taskButton.innerHTML = originalHTML;
     }
 };
 
-// --- [WITHDRAWAL] ---
+// ---------- WITHDRAWALS ----------
 window.submitWithdrawal = async function () {
-    const amount = parseInt(document.getElementById('withdraw-amount').value);
+    if (!userState) return alert('User not ready.');
+    const amount = parseInt(document.getElementById('withdraw-amount').value, 10);
     const method = document.getElementById('withdraw-method').value;
     const walletId = document.getElementById('wallet-id').value.trim();
-    const minAmount = WITHDRAWAL_MINIMUMS[method];
+    const min = WITHDRAWAL_MINIMUMS[method];
 
-    if (isNaN(amount) || amount <= 0 || !walletId) {
-        alert('Please enter a valid amount and your Binance ID or Email.');
-        return;
-    }
-    if (amount < minAmount) {
-        alert(`Withdrawal failed. Minimum is ${minAmount.toLocaleString()} PEPE.`);
-        return;
-    }
-    if (amount > userState.balance) {
-        alert('Withdrawal failed. Not enough balance.');
-        return;
-    }
+    if (!amount || amount <= 0 || !walletId) return alert('Please enter amount and wallet ID.');
+    if (amount < min) return alert(`Minimum withdrawal for ${method} is ${min.toLocaleString()} PEPE.`);
+    if (amount > (userState.balance || 0)) return alert('Insufficient balance.');
 
     try {
         const historyList = document.getElementById('history-list');
-        const noHistoryMsg = historyList.querySelector('.no-history');
-        if (noHistoryMsg) noHistoryMsg.remove();
-
-        const optimisticData = { amount: amount, status: 'pending', requestedAt: new Date() };
-        historyList.prepend(renderHistoryItem(optimisticData));
+        const optimistic = { amount, status: 'pending', requestedAt: new Date() };
+        // optimistic UI
+        if (historyList) {
+            if (historyList.querySelector('.no-history')) historyList.innerHTML = '';
+            historyList.prepend(renderHistoryItem(optimistic));
+        }
 
         await db.collection('withdrawals').add({
             userId: telegramUserId,
-            username: userState.telegramUsername,
-            amount: amount,
-            method: "Binance Pay",
-            walletId: walletId,
-            currency: "PEPE",
-            status: "pending",
+            username: userState.telegramUsername || userState.username,
+            amount,
+            method: method,
+            walletId,
+            currency: 'PEPE',
+            status: 'pending',
             requestedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
 
@@ -317,27 +357,26 @@ window.submitWithdrawal = async function () {
             balance: firebase.firestore.FieldValue.increment(-amount)
         });
 
-        alert(`Success! Withdrawal request for ${amount.toLocaleString()} PEPE submitted.`);
+        alert(`Withdrawal request for ${amount.toLocaleString()} PEPE submitted.`);
         document.getElementById('withdraw-amount').value = '';
         document.getElementById('wallet-id').value = '';
-    } catch (error) {
-        console.error("Withdrawal failed:", error);
-        alert("There was an error submitting your request. Please try again.");
+    } catch (err) {
+        console.error('Withdraw failed:', err);
+        alert('Error submitting withdrawal.');
     }
 };
 
-// --- [WITHDRAW HISTORY] ---
 function renderHistoryItem(withdrawalData) {
     const item = document.createElement('div');
-    item.className = `history-item ${withdrawalData.status}`;
-    const date = withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : withdrawalData.requestedAt;
-    const formattedDate = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    item.className = `history-item ${withdrawalData.status || 'pending'}`;
+    const dateObj = withdrawalData.requestedAt && withdrawalData.requestedAt.toDate ? withdrawalData.requestedAt.toDate() : (withdrawalData.requestedAt || new Date());
+    const formattedDate = new Date(dateObj).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     item.innerHTML = `
         <div class="history-details">
-            <div class="history-amount">${withdrawalData.amount.toLocaleString()} PEPE</div>
+            <div class="history-amount">${(withdrawalData.amount || 0).toLocaleString()} PEPE</div>
             <div class="history-date">${formattedDate}</div>
         </div>
-        <div class="history-status ${withdrawalData.status}">${withdrawalData.status}</div>
+        <div class="history-status ${withdrawalData.status || 'pending'}">${withdrawalData.status || 'pending'}</div>
     `;
     return item;
 }
@@ -347,72 +386,71 @@ function listenForWithdrawalHistory() {
     db.collection('withdrawals')
         .where('userId', '==', telegramUserId)
         .orderBy('requestedAt', 'desc')
-        .limit(10)
-        .onSnapshot(querySnapshot => {
-            if (querySnapshot.empty) {
+        .limit(20)
+        .onSnapshot(qs => {
+            if (!historyList) return;
+            if (qs.empty) {
                 historyList.innerHTML = '<p class="no-history">You have no withdrawal history yet.</p>';
                 return;
             }
             historyList.innerHTML = '';
-            querySnapshot.forEach(doc => {
+            qs.forEach(doc => {
                 historyList.appendChild(renderHistoryItem(doc.data()));
             });
+        }, (err) => {
+            console.error('Withdraw history listen error:', err);
         });
 }
 
-// --- [REFERRAL MODAL & COPY] ---
-// copyReferralLink(button, inputId?)  - inputId defaults to 'referral-link'
+// ---------- REFERRAL MODAL & COPY ----------
 window.openReferModal = function () {
-    if (!TELEGRAM_BOT_USERNAME) {
-        alert("Error: Bot username not set.");
-        return;
-    }
     const referralLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${telegramUserId}`;
     const input = document.getElementById('referral-link');
     if (input) input.value = referralLink;
-    document.getElementById('refer-modal').style.display = 'flex';
+    const modal = document.getElementById('refer-modal');
+    if (modal) { modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); }
 };
 window.closeReferModal = function () {
-    document.getElementById('refer-modal').style.display = 'none';
+    const modal = document.getElementById('refer-modal');
+    if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
 };
 
-window.copyReferralLink = function (button, inputId = 'referral-link') {
-    const linkInput = document.getElementById(inputId);
-    if (!linkInput) return;
-    navigator.clipboard.writeText(linkInput.value).then(() => {
-        const originalIcon = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-check"></i>';
-        setTimeout(() => { button.innerHTML = originalIcon; }, 1500);
+window.copyReferralLink = function (buttonEl, inputId = 'referral-link') {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    navigator.clipboard.writeText(input.value).then(() => {
+        const original = buttonEl.innerHTML;
+        buttonEl.innerHTML = '<i class="fas fa-check"></i>';
+        setTimeout(() => buttonEl.innerHTML = original, 1400);
     }).catch(err => {
-        console.error('Failed to copy text: ', err);
-        alert('Copy failed. Please copy manually.');
+        console.error('Copy failed', err);
+        alert('Copy failed — please select and copy manually.');
     });
 };
 
-window.onclick = function (event) {
-    if (event.target == document.getElementById('refer-modal')) {
-        closeReferModal();
-    }
+window.onclick = function (e) {
+    const modal = document.getElementById('refer-modal');
+    if (e.target === modal) closeReferModal();
 };
 
-// --- [OTHER UTILITIES] ---
+// ---------- NAV TAB ----------
 window.showTab = function (tabName, element) {
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.getElementById(tabName).classList.add('active');
-    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    const el = document.getElementById(tabName);
+    if (el) el.classList.add('active');
+
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     if (element) element.classList.add('active');
 };
 
-// --- [APP ENTRY POINT] ---
+// ---------- APP ENTRY ----------
 document.addEventListener('DOMContentLoaded', () => {
-    // If inside Telegram WebApp, access their user object
     if (window.Telegram && window.Telegram.WebApp) {
         Telegram.WebApp.ready();
-        // Telegram.WebApp.initDataUnsafe.user contains only the user object
-        // start_param is located in Telegram.WebApp.initDataUnsafe.start_param
-        initializeApp(window.Telegram.WebApp.initDataUnsafe.user);
+        const tgUser = Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user ? Telegram.WebApp.initDataUnsafe.user : null;
+        initializeApp(tgUser);
     } else {
-        console.warn("Telegram WebApp not found. Running in local test mode.");
+        console.warn('Telegram WebApp not found. Running in local test mode.');
         initializeApp(null);
     }
 });
