@@ -26,6 +26,17 @@ const WITHDRAWAL_MINIMUMS = {
     binancepay: 10000
 };
 
+// --- [HELPER: Get Telegram Display Name] ---
+function getTelegramDisplayName(tgUser) {
+    if (!tgUser) return "User";
+    let fullName = (tgUser.first_name || "") + (tgUser.last_name ? " " + tgUser.last_name : "");
+    fullName = fullName.trim();
+    if (fullName) return fullName;
+    if (tgUser.username) return "@" + tgUser.username;
+    if (tgUser.id) return "User_" + tgUser.id;
+    return "User";
+}
+
 // --- [APP INITIALIZATION] ---
 async function initializeApp(tgUser) {
     telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
@@ -37,14 +48,14 @@ async function initializeApp(tgUser) {
     if (!userDoc.exists) {
         console.log('New user detected.');
 
-        // ✅ Correct way to get referral ID (Telegram WebApp puts start_param inside initDataUnsafe)
+        // Get referral ID from Telegram link start_param if exists and not self
         const referrerIdRaw = window.Telegram?.WebApp?.initDataUnsafe?.start_param || null;
         const referrerId = (referrerIdRaw && referrerIdRaw !== telegramUserId) ? referrerIdRaw : null;
         console.log(`DEBUG: Referrer ID from Telegram link: ${referrerId}`);
 
         const newUserState = {
-            username: tgUser ? `${tgUser.first_name} ${tgUser.last_name || ''}`.trim() : "User",
-            telegramUsername: tgUser ? `@${tgUser.username || tgUser.id}` : `@test_user`,
+            username: getTelegramDisplayName(tgUser),
+            telegramUsername: tgUser && tgUser.username ? `@${tgUser.username}` : "@user",
             profilePicUrl: generatePlaceholderAvatar(telegramUserId),
             balance: 0,
             tasksCompletedToday: 0,
@@ -60,7 +71,7 @@ async function initializeApp(tgUser) {
         if (referrerId) {
             const referrerRef = db.collection('users').doc(referrerId);
             try {
-                // Atomic transaction to create new user & increment referrer totalRefers
+                // Atomic transaction to create user & increment referrer's totalRefers
                 await db.runTransaction(async (transaction) => {
                     const refDoc = await transaction.get(referrerRef);
                     if (refDoc.exists) {
@@ -93,7 +104,7 @@ async function initializeApp(tgUser) {
     }
     updateUI();
 
-    // Realtime listen for user doc updates after initial load
+    // Listen for realtime updates to user document after initial load
     userRef.onSnapshot((doc) => {
         if (doc.exists) {
             userState = doc.data();
