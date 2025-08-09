@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- Firebase Configuration ---
+    // --- THIS IS THE CONNECTION TO YOUR FIREBASE DATABASE ---
     const firebaseConfig = {
         apiKey: "AIzaSyA_l71gxjNPxLZ-5oV40ap-8Cp_4MnH-Jg",
         authDomain: "taskitup-9de28.firebaseapp.com",
@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appId: "1:1030752202095:web:ac1b5a8ff85ba2c6204c9a"
     };
 
+    // Initialize Firebase Connection
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
     const tg = window.Telegram.WebApp;
