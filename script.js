@@ -25,14 +25,14 @@ const DAILY_TASK_LIMIT = 40;
 const AD_REWARD = 250;
 const REFERRAL_COMMISSION_RATE = 0.10;
 const WITHDRAWAL_MINIMUMS = {
-    binancepay: 10000 
+    binancepay: 10000
 };
 
 // --- [CORE APP LOGIC] ---
 
 function initializeApp(tgUser) {
     telegramUserId = tgUser ? tgUser.id.toString() : getFakeUserIdForTesting();
-    
+
     console.log(`Initializing app for User ID: ${telegramUserId}`);
     const userRef = db.collection('users').doc(telegramUserId);
 
@@ -40,8 +40,9 @@ function initializeApp(tgUser) {
         if (!doc.exists) {
             // --- THIS IS THE CRITICAL PATH FOR A NEW USER ---
             console.log('New user detected. Full Telegram data received:', window.Telegram.WebApp.initDataUnsafe);
-            
-            // **FIX**: Prioritize `start_param` from Telegram for referrals. This is the most reliable method. [3, 4]
+
+            // --- FIX START ---
+            // **CRITICAL FIX**: Prioritize `start_param` from Telegram for referrals. This is the most reliable method. [3, 4]
             const referrerId = tgUser?.start_param;
             console.log(`DEBUG: Parsed referrerId from start_param: '${referrerId}'`);
 
@@ -54,10 +55,10 @@ function initializeApp(tgUser) {
                 referredBy: referrerId || null,
                 referralEarnings: 0
             };
-            
+
             // **CRITICAL FIX**: Immediately set the local `userState`.
             // This ensures that if the user performs an action right away, the `payReferralCommission`
-            // function will have the correct `referredBy` information.
+            // function will have the correct `referredBy` information. This solves the race condition.
             userState = newUserState;
 
             if (referrerId) {
@@ -85,18 +86,19 @@ function initializeApp(tgUser) {
                     // This log is crucial. If the transaction fails, this will tell you why.
                     console.error("FATAL: Referral transaction failed. The referrer was NOT credited.", error);
                     // Fallback: create the user anyway so they can use the app, but without the referral data.
-                    newUserState.referredBy = null; 
+                    newUserState.referredBy = null;
                     await userRef.set(newUserState);
                 }
             } else {
                 console.log("DEBUG: No referrer ID found. Creating a standard new user.");
                 await userRef.set(newUserState); // Create user if there's no referrer
             }
+            // --- FIX END ---
         } else {
             console.log('User data updated in real-time.');
             userState = doc.data();
         }
-        
+
         if (!isInitialized) {
             setupTaskButtonListeners();
             listenForWithdrawalHistory();
@@ -150,13 +152,13 @@ function listenForWithdrawalHistory() { const historyList = document.getElementB
 
 // This function now works reliably because `userState` is set correctly on signup.
 async function payReferralCommission(earnedAmount) {
-    if (!userState.referredBy) return; 
+    if (!userState.referredBy) return;
 
     const commissionAmount = Math.floor(earnedAmount * REFERRAL_COMMISSION_RATE);
     if (commissionAmount <= 0) return;
 
     const referrerRef = db.collection('users').doc(userState.referredBy);
-    
+
     // Atomically updates the referrer's balance for the commission. [7, 10]
     return referrerRef.update({
         balance: firebase.firestore.FieldValue.increment(commissionAmount),
